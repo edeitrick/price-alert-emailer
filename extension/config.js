@@ -1,7 +1,7 @@
 // Fill these in after creating your Supabase project (Project Settings → API).
 // The anon key is safe to ship in the extension; never put the service-role key here.
-export const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
-export const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+export const SUPABASE_URL = 'https://zkzedwhojkdlzlaypand.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_jCN26sNofHPXWzAZEL-W1A_KqfcPoBO';
 
 // Where the web app runs. Must also be listed in manifest.json → externally_connectable.
 export const WEB_APP_URL = 'http://localhost:3000';
