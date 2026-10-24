@@ -39,3 +39,6 @@ tr.rejected { opacity: 0.5; }
 .suggestion p { margin: 0 0 6px; }
 .suggestion ul { margin: 0 0 8px; padding-left: 20px; font-size: 14px; }
 select { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); flex: 1; min-width: 0; }
+.merge-list { list-style: none; padding: 0; }
+.merge-list label { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
+.merge-list input { margin-top: 4px; }

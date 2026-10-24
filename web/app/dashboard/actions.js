@@ -74,8 +74,24 @@ export async function mergeItems(formData) {
   done();
 }
 
-export async function dismissMerge(formData) {
+// Merges the checked items of a suggestion into the oldest checked one.
+export async function mergeGroup(formData) {
+  const ids = formData.getAll('ids');
+  if (ids.length < 2) redirect('/dashboard?error=Check at least two items to merge.');
   const supabase = await createClient();
-  await supabase.from('merge_dismissals').insert({ item_a: formData.get('item_a'), item_b: formData.get('item_b') });
+  const [keep, ...rest] = ids; // the form lists items oldest first
+  for (const id of rest) {
+    const { error } = await supabase.rpc('merge_items', { p_keep: keep, p_merge: id });
+    if (error) redirect(`/dashboard?error=${encodeURIComponent(`Couldn't merge: ${error.message}`)}`);
+  }
+  done();
+}
+
+// "Not the same": stop suggesting any pair from this group.
+export async function dismissGroup(formData) {
+  const ids = formData.getAll('group_ids');
+  const rows = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => ({ item_a: a, item_b: b })));
+  const supabase = await createClient();
+  await supabase.from('merge_dismissals').upsert(rows, { ignoreDuplicates: true });
   done();
 }

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { updateThreshold, toggleActive, deleteItem, setListingStatus, addListing, signOut, mergeItems, dismissMerge } from './actions';
+import { updateThreshold, toggleActive, deleteItem, setListingStatus, addListing, signOut, mergeItems, mergeGroup, dismissGroup } from './actions';
 
 const money = (n) => (n == null ? '—' : `$${Number(n).toFixed(2)}`);
 const AUTO_MATCH = 0.85;
@@ -95,31 +95,49 @@ function ItemCard({ item, otherItems }) {
   );
 }
 
-function MergeSuggestion({ a, b, score }) {
+// Joins overlapping suggestion pairs (A~B, B~C) into one group per product.
+function groupSuggestions(pairs, byId) {
+  const parent = new Map();
+  const find = (x) => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x))), parent.get(x)));
+  for (const { item_a, item_b } of pairs) {
+    for (const id of [item_a, item_b]) if (!parent.has(id)) parent.set(id, id);
+    parent.set(find(item_a), find(item_b));
+  }
+  const groups = new Map();
+  for (const id of parent.keys()) groups.set(find(id), [...(groups.get(find(id)) ?? []), byId.get(id)]);
+  // Oldest item first: it's the one the others merge into.
+  return [...groups.values()].map((g) => g.sort((x, y) => x.created_at.localeCompare(y.created_at)));
+}
+
+const storeNames = (item) => [...new Set(item.listings.map((l) => l.stores.name))].join(', ');
+
+function MergeSuggestion({ group }) {
   return (
-    <div className="suggestion">
-      <p>
-        <strong>These look like the same product</strong>
-        <span className="muted"> ({Math.round(score * 100)}% alike)</span>
-      </p>
-      <ul>
-        <li>{a.title}{a.size && <span className="muted"> · {a.size}</span>}</li>
-        <li>{b.title}{b.size && <span className="muted"> · {b.size}</span>}</li>
+    <form className="suggestion" action={mergeGroup}>
+      <p><strong>These look like the same product</strong></p>
+      <ul className="merge-list">
+        {group.map((item) => (
+          <li key={item.id}>
+            <label>
+              <input type="checkbox" name="ids" value={item.id} defaultChecked />
+              <span>
+                {item.title}
+                <span className="muted"> · {storeNames(item)}{item.size && ` · ${item.size}`}</span>
+              </span>
+            </label>
+            <input type="hidden" name="group_ids" value={item.id} />
+          </li>
+        ))}
       </ul>
-      <p className="muted">Merging puts all their store links on one item, so you get one alert for the cheapest store.</p>
+      <p className="muted">
+        Merging puts all their store links on one item, so you get one alert for the cheapest store.
+        Uncheck any that aren't the same.
+      </p>
       <div className="inline">
-        <form action={mergeItems}>
-          <input type="hidden" name="keep_id" value={a.id} />
-          <input type="hidden" name="merge_id" value={b.id} />
-          <button>Merge them</button>
-        </form>
-        <form action={dismissMerge}>
-          <input type="hidden" name="item_a" value={a.id} />
-          <input type="hidden" name="item_b" value={b.id} />
-          <button className="link">Not the same</button>
-        </form>
+        <button>Merge {group.length > 2 ? 'checked items' : 'them'}</button>
+        <button className="link" formAction={dismissGroup}>Not the same</button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -134,7 +152,7 @@ export default async function Dashboard({ searchParams }) {
     supabase.rpc('suggest_merges'),
   ]);
   const byId = new Map((items ?? []).map((i) => [i.id, i]));
-  const merges = (suggestions ?? []).filter((m) => byId.has(m.item_a) && byId.has(m.item_b));
+  const mergeGroups = groupSuggestions((suggestions ?? []).filter((m) => byId.has(m.item_a) && byId.has(m.item_b)), byId);
 
   return (
     <>
@@ -151,9 +169,7 @@ export default async function Dashboard({ searchParams }) {
 
       {error && <p className="error">{error}</p>}
 
-      {merges.map((m) => (
-        <MergeSuggestion key={`${m.item_a}-${m.item_b}`} a={byId.get(m.item_a)} b={byId.get(m.item_b)} score={m.score} />
-      ))}
+      {mergeGroups.map((group) => <MergeSuggestion key={group[0].id} group={group} />)}
 
       {!items?.length ? (
         <p className="empty">
