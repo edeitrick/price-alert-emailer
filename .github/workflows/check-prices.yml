@@ -1,0 +1,27 @@
+name: Check prices
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours (UTC); also keeps the free Supabase project awake
+  workflow_dispatch: {}      # "Run workflow" button for manual runs
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: checker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: node check.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}

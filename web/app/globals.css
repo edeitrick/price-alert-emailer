@@ -1,0 +1,37 @@
+:root { --accent: #0f766e; --text: #1a1a1a; --muted: #666; --border: #e5e5e5; --bg: #fafaf9; --card: #fff; --danger: #b91c1c; }
+@media (prefers-color-scheme: dark) {
+  :root { --text: #eee; --muted: #a3a3a3; --border: #333; --bg: #141414; --card: #1e1e1e; --accent: #2dd4bf; --danger: #f87171; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: var(--text); background: var(--bg); }
+a { color: var(--accent); }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+.topbar { padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+.topbar a { font-weight: 700; text-decoration: none; }
+.hero { text-align: center; padding-top: 48px; }
+.hero h1 { font-size: 2.2rem; margin-bottom: 8px; }
+.hero p { max-width: 520px; margin: 0 auto 24px; color: var(--muted); }
+.steps { text-align: left; max-width: 420px; margin: 32px auto 0; color: var(--muted); }
+.btn, button { font: inherit; font-weight: 600; padding: 8px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+button.link { background: none; color: var(--accent); padding: 0; font-weight: 500; }
+button.danger { color: var(--danger); }
+input { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+input[type=number] { width: 64px; }
+input[type=url] { flex: 1; min-width: 0; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); }
+.empty { padding: 32px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); }
+.dash-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.dash-head h1 { margin: 0; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.card.paused { opacity: 0.6; }
+.card-head { display: flex; gap: 14px; align-items: center; }
+.card-head img { width: 64px; height: 64px; object-fit: contain; border-radius: 6px; background: #fff; }
+.card-head h3 { margin: 0; font-size: 1rem; }
+.card-head p { margin: 2px 0 0; font-size: 13px; }
+.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inline button { padding: 4px 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td { padding: 6px 4px; border-top: 1px solid var(--border); vertical-align: middle; }
+tr.rejected { opacity: 0.5; }
+.card-actions { display: flex; gap: 16px; }

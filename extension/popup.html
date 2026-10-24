@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>Price Alert Emailer</header>
+
+  <section id="connect" hidden>
+    <p>Connect your account to start saving items.</p>
+    <button id="connect-btn">Sign in with Google</button>
+  </section>
+
+  <section id="loading">Reading this page…</section>
+
+  <form id="save" hidden>
+    <div class="product">
+      <img id="image" alt="" />
+      <div>
+        <div id="title"></div>
+        <div id="store" class="muted"></div>
+      </div>
+    </div>
+
+    <label>Current price
+      <input id="price" type="number" step="0.01" min="0.01" required />
+    </label>
+
+    <label>Alert me when it's at least
+      <span class="row"><input id="threshold" type="number" min="1" max="95" required /> % off</span>
+    </label>
+
+    <label>Category <span class="muted">(used to check your other stores)</span>
+      <select id="category"></select>
+    </label>
+
+    <button type="submit">Save alert</button>
+    <p id="target" class="muted"></p>
+  </form>
+
+  <section id="done" hidden>
+    <p>✓ Saved. We'll email <strong id="email"></strong> when it drops.</p>
+    <a id="dashboard" target="_blank">Open dashboard</a>
+  </section>
+
+  <p id="error" hidden></p>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
