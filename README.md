@@ -86,7 +86,8 @@ saving an item. Each saved item shows:
   hours a minimized Chrome window briefly opens, loads your saved products, and closes again.
   That's normal. Chrome doesn't need to be the window you're using, but don't quit it entirely.
 - **Want a fresh check right away?** Click the extension icon, then **Check my prices now** at the
-  bottom. It also shows when your prices were last checked.
+  bottom. You can close the popup; the check keeps going. Reopen it to see what it's doing, or when
+  it last finished and what it found.
 - **Other stores are only checked if you've used them.** The app searches stores you've saved an
   item from or pasted a link from, and only ones that sell that kind of item. It learns each new
   store's search page the first time you save from it, so most stores (Amazon, Sephora, Ulta,

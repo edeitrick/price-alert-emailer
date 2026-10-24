@@ -18,28 +18,35 @@ function updateTargetPrice() {
     : '';
 }
 
-async function showLastRefresh() {
-  const { lastRefresh } = await chrome.storage.local.get('lastRefresh');
-  $('last-refresh').textContent = lastRefresh
-    ? `Last checked ${new Date(lastRefresh.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
-    : '';
+function summary(r) {
+  if (!r) return '';
+  if (r.error) return `Last check stopped: ${r.error}`;
+  const when = new Date(r.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const parts = [`${r.checked ?? 0} price${r.checked === 1 ? '' : 's'} updated`];
+  if (r.matched) parts.push(`${r.matched} found at other stores`);
+  if (r.failed) parts.push(`${r.failed} couldn't be read`);
+  return `Last checked ${when}: ${parts.join(', ')}`;
+}
+
+// Shows the running check's progress (from the background worker), or the last result.
+async function showStatus() {
+  const { refreshStatus, lastRefresh } = await chrome.storage.local.get(['refreshStatus', 'lastRefresh']);
+  // A status older than 2 minutes means the run was interrupted (e.g. Chrome closed).
+  const live = refreshStatus?.running && Date.now() - refreshStatus.at < 2 * 60 * 1000;
+  $('refresh').hidden = live;
+  $('last-refresh').textContent = live ? `Checking… ${refreshStatus.text}` : summary(lastRefresh);
+  return live;
 }
 
 // Prices are refreshed every 6 hours in a minimized window; this runs it now.
 function showRefreshFooter() {
   $('footer').hidden = false;
-  showLastRefresh();
+  const poll = async () => { if (await showStatus()) setTimeout(poll, 1500); };
+  poll();
   $('refresh').onclick = async (e) => {
     e.preventDefault();
-    $('refresh').textContent = 'Checking… (a minimized window opens)';
-    const result = await chrome.runtime.sendMessage({ type: 'refresh-now' });
-    $('refresh').textContent = result?.error
-      ? `Couldn't check: ${result.error}`
-      : result?.skipped ? `Already checking`
-      : `Checked ${result.checked} price${result.checked === 1 ? '' : 's'}` +
-        (result.matched ? `, found ${result.matched} at other stores` : '') +
-        (result.failed ? `, ${result.failed} not found` : '');
-    showLastRefresh();
+    await chrome.runtime.sendMessage({ type: 'refresh-now' });
+    setTimeout(poll, 300);
   };
 }
 

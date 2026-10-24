@@ -37,15 +37,18 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
 });
 
 // From the popup: "Check my prices now", and right after saving an item.
+// Answers at once and lets the run continue: Chrome stops a service worker
+// whose single message stays open longer than 5 minutes, which cut runs short.
+// The popup follows progress through `refreshStatus` in storage instead.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'refresh-now') {
-    runAll().then(sendResponse, (err) => sendResponse({ error: err.message }));
-    return true;
+    sendResponse({ started: !running });
+    runAll().catch(console.error);
   }
   if (msg?.type === 'match-item' && msg.itemId) {
     // The new item first, then any other items still waiting to be searched.
-    runAll({ firstItemId: msg.itemId }).then(sendResponse, (err) => sendResponse({ error: err.message }));
-    return true;
+    sendResponse({ started: !running });
+    runAll({ firstItemId: msg.itemId }).catch(console.error);
   }
 });
 
@@ -54,6 +57,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const setStatus = (text) =>
+  chrome.storage.local.set({ refreshStatus: { running: true, text, at: Date.now() } });
 
 function waitForLoad(tabId) {
   return new Promise((resolve) => {
@@ -133,53 +139,63 @@ async function matchItems(tabId, firstItemId) {
 
   for (const item of items) {
     if (item.id !== firstItemId && item.matched_at && Date.now() - Date.parse(item.matched_at) < REMATCH_AFTER_MS) continue;
-    const listedStores = new Set(item.listings.map((l) => l.store_id));
-    const rejected = new Set(item.listings.filter((l) => l.status === 'rejected').map((l) => l.url));
-    // Only stores this user has saved from or added a link for, in the item's category.
-    const targets = userStores.filter((s) => !listedStores.has(s.id) && s.categories.includes(item.category));
-    const itemSize = parseSize(item.size) ?? parseSize(item.title);
-
-    for (const store of targets) {
-      stats.searched++;
-      const searchUrl = store.search_url.replace('{q}', encodeURIComponent(searchQuery(item)));
-      const links = ((await readSearchResults(tabId, searchUrl)) ?? [])
-        .map(canonicalUrl)
-        .filter((u) => !rejected.has(u));
-
-      let best = null;
-      for (const link of links) {
-        await sleep(BETWEEN_PAGES_MS);
-        const candidate = await readCandidate(tabId, link, itemSize);
-        if (!candidate) continue;
-        const score = matchScore(item, candidate.product);
-        if (!best || score > best.score) best = { ...candidate, score };
-        if (score === 1) break;
-      }
-
-      if (best && best.score >= MIN_MATCH_SCORE) {
-        const [listing] = await api('/rest/v1/listings?on_conflict=item_id,url', {
-          method: 'POST',
-          prefer: 'return=representation,resolution=ignore-duplicates',
-          body: {
-            item_id: item.id,
-            store_id: store.id,
-            url: best.url,
-            match_type: item.gtin && best.product.gtin ? 'gtin' : 'fuzzy',
-            match_confidence: best.score,
-            size: best.product.size,
-          },
-        });
-        if (listing) {
-          // Records the price too, so the dashboard shows it right away.
-          await rpc('record_price', { p_listing_id: listing.id, p_price: best.product.price, p_in_stock: best.product.inStock });
-          stats.matched++;
-        }
-      }
-      await sleep(BETWEEN_PAGES_MS);
+    try {
+      await searchOtherStores(tabId, item, userStores, stats);
+    } catch (err) {
+      console.warn('Search failed for', item.title, err); // try again next run
+      continue;
     }
     await api(`/rest/v1/items?id=eq.${item.id}`, { method: 'PATCH', body: { matched_at: new Date().toISOString() } });
   }
   return stats;
+}
+
+async function searchOtherStores(tabId, item, userStores, stats) {
+  const listedStores = new Set(item.listings.map((l) => l.store_id));
+  const rejected = new Set(item.listings.filter((l) => l.status === 'rejected').map((l) => l.url));
+  // Only stores this user has saved from or added a link for, in the item's category.
+  const targets = userStores.filter((s) => !listedStores.has(s.id) && s.categories.includes(item.category));
+  const itemSize = parseSize(item.size) ?? parseSize(item.title);
+
+  for (const store of targets) {
+    stats.searched++;
+    await setStatus(`Looking for “${item.title.slice(0, 40)}” at ${store.name}`);
+    const searchUrl = store.search_url.replace('{q}', encodeURIComponent(searchQuery(item)));
+    const links = ((await readSearchResults(tabId, searchUrl)) ?? [])
+      .map(canonicalUrl)
+      .filter((u) => !rejected.has(u));
+
+    let best = null;
+    for (const link of links) {
+      await sleep(BETWEEN_PAGES_MS);
+      const candidate = await readCandidate(tabId, link, itemSize);
+      if (!candidate) continue;
+      const score = matchScore(item, candidate.product);
+      if (!best || score > best.score) best = { ...candidate, score };
+      if (score === 1) break;
+    }
+
+    if (best && best.score >= MIN_MATCH_SCORE) {
+      const [listing] = await api('/rest/v1/listings?on_conflict=item_id,url', {
+        method: 'POST',
+        prefer: 'return=representation,resolution=ignore-duplicates',
+        body: {
+          item_id: item.id,
+          store_id: store.id,
+          url: best.url,
+          match_type: item.gtin && best.product.gtin ? 'gtin' : 'fuzzy',
+          match_confidence: best.score,
+          size: best.product.size,
+        },
+      });
+      if (listing) {
+        // Records the price too, so the dashboard shows it right away.
+        await rpc('record_price', { p_listing_id: listing.id, p_price: best.product.price, p_in_stock: best.product.inStock });
+        stats.matched++;
+      }
+    }
+    await sleep(BETWEEN_PAGES_MS);
+  }
 }
 
 // --- Price refresh -------------------------------------------------------------
@@ -190,16 +206,22 @@ async function refreshPrices(tabId) {
     '/rest/v1/listings?select=id,url,size,last_checked_at,stores!inner(server_fetch),items!inner(active,size,title)' +
     '&stores.server_fetch=eq.false&items.active=eq.true&status=neq.rejected',
   );
-  for (const listing of listings) {
-    if (listing.last_checked_at && Date.now() - Date.parse(listing.last_checked_at) < RECHECK_AFTER_MS) continue;
-    const size = parseSize(listing.size) ?? parseSize(listing.items.size) ?? parseSize(listing.items.title);
-    const product = await readProduct(tabId, listing.url, size);
-    if (product) {
-      await rpc('record_price', { p_listing_id: listing.id, p_price: product.price, p_in_stock: product.inStock });
-      stats.checked++;
-    } else {
+  const due = listings.filter((l) => !l.last_checked_at || Date.now() - Date.parse(l.last_checked_at) >= RECHECK_AFTER_MS);
+  for (const [i, listing] of due.entries()) {
+    await setStatus(`Checking prices (${i + 1} of ${due.length}): ${new URL(listing.url).hostname.replace(/^www\./, '')}`);
+    try {
+      const size = parseSize(listing.size) ?? parseSize(listing.items.size) ?? parseSize(listing.items.title);
+      const product = await readProduct(tabId, listing.url, size);
+      if (product?.price) {
+        await rpc('record_price', { p_listing_id: listing.id, p_price: product.price, p_in_stock: product.inStock });
+        stats.checked++;
+      } else {
+        stats.failed++;
+        console.warn('No price found', listing.url);
+      }
+    } catch (err) {
       stats.failed++;
-      console.warn('No price found', listing.url);
+      console.warn('Price check failed', listing.url, err);
     }
     await sleep(BETWEEN_PAGES_MS);
   }
@@ -211,6 +233,7 @@ async function runAll({ firstItemId } = {}) {
   if (running) return { skipped: 'already running' };
   if (!(await getSession())) return { skipped: 'not signed in' };
   running = true;
+  await setStatus('Starting…');
   let windowId;
   try {
     const win = await chrome.windows.create({ url: 'about:blank', focused: false, state: 'minimized' });
@@ -223,8 +246,12 @@ async function runAll({ firstItemId } = {}) {
     const stats = { ...matched, ...prices };
     await chrome.storage.local.set({ lastRefresh: { at: Date.now(), ...stats } });
     return stats;
+  } catch (err) {
+    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), error: err.message } });
+    throw err;
   } finally {
     running = false;
+    await chrome.storage.local.set({ refreshStatus: { running: false, at: Date.now() } });
     if (windowId) chrome.windows.remove(windowId).catch(() => {});
   }
 }

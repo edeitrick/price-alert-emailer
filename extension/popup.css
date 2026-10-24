@@ -12,5 +12,5 @@ button { font: inherit; font-weight: 600; padding: 8px; border: 0; border-radius
 #title { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .muted { color: #666; font-weight: 400; font-size: 12px; }
 #error { color: #b91c1c; margin: 0; }
-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px 12px; border-top: 1px solid #eee; font-size: 12px; }
+footer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 14px 12px; border-top: 1px solid #eee; font-size: 12px; }
 footer a { color: #0f766e; }
