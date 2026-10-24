@@ -62,3 +62,20 @@ export async function signOut() {
   await supabase.auth.signOut();
   redirect('/');
 }
+
+// Moves the other item's store links onto this one and deletes the other.
+export async function mergeItems(formData) {
+  const keep = formData.get('keep_id');
+  const merge = formData.get('merge_id');
+  if (!keep || !merge || keep === merge) return;
+  const supabase = await createClient();
+  const { error } = await supabase.rpc('merge_items', { p_keep: keep, p_merge: merge });
+  if (error) redirect(`/dashboard?error=${encodeURIComponent(`Couldn't merge: ${error.message}`)}`);
+  done();
+}
+
+export async function dismissMerge(formData) {
+  const supabase = await createClient();
+  await supabase.from('merge_dismissals').insert({ item_a: formData.get('item_a'), item_b: formData.get('item_b') });
+  done();
+}

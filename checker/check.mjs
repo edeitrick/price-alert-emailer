@@ -51,6 +51,9 @@ async function findMatches(stores) {
       .filter((s) => s && s.server_fetch && s.search_url && !haveStores.has(s.id))
       .filter((s) => s.categories.includes(item.category));
 
+    // Stores the checker can't reach are searched by the extension; leave
+    // matched_at alone so the extension still picks this item up.
+    if (!targets.length) continue;
     for (const store of targets) {
       try {
         const best = await searchStore(store, item);

@@ -199,25 +199,41 @@ function sizeOf(title) {
   return m ? `${parseFloat(m[1])}${m[2].replace(/[\s.]/g, '')}` : null;
 }
 
+// Words stores use interchangeably.
+const SYNONYMS = { facial: 'face', moisturiser: 'moisturizer', colour: 'color', lipstick: 'lip', moisturizing: 'moisturizer' };
+const brandKey = (x) => x.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
 export function normalizeTitle(title) {
   return title
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}.\s]/gu, ' ')
+    .replace(/\d+(?:\.\d+)?\s*(fl\.?\s*oz|oz|ml|g|mg|lb|ct|count|pack)\b/g, ' ') // sizes compared separately
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
-    .filter((w) => w && !STOPWORDS.has(w));
+    .filter((w) => w && !STOPWORDS.has(w) && !/^\d+$/.test(w))
+    .map((w) => SYNONYMS[w] ?? w);
+}
+
+// Title words that describe the product, minus the brand's own words.
+function productWords(item) {
+  const brandWords = new Set(item.brand ? normalizeTitle(item.brand) : []);
+  return new Set(normalizeTitle(item.title).filter((w) => !brandWords.has(w)));
 }
 
 // 0..1 score that two listings are the same product.
 export function matchScore(a, b) {
   if (a.gtin && b.gtin) return String(a.gtin).replace(/^0+/, '') === String(b.gtin).replace(/^0+/, '') ? 1 : 0;
 
-  const ta = new Set(normalizeTitle(`${a.brand ?? ''} ${a.title}`));
-  const tb = new Set(normalizeTitle(`${b.brand ?? ''} ${b.title}`));
+  // Strip both brands from both titles so "La Roche Posay" vs "La Roche-Posay" doesn't count.
+  const brands = [a.brand, b.brand].filter(Boolean).join(' ');
+  const ta = productWords({ ...a, brand: brands });
+  const tb = productWords({ ...b, brand: brands });
   if (!ta.size || !tb.size) return 0;
   const overlap = [...ta].filter((w) => tb.has(w)).length;
   let score = overlap / Math.min(ta.size, tb.size) * 0.7 + overlap / Math.max(ta.size, tb.size) * 0.3;
 
-  if (a.brand && b.brand && a.brand.toLowerCase() !== b.brand.toLowerCase()) score *= 0.5;
+  if (a.brand && b.brand && !brandKey(a.brand).includes(brandKey(b.brand)) && !brandKey(b.brand).includes(brandKey(a.brand))) {
+    score *= 0.5;
+  }
   const sa = sizeOf(a.title);
   const sb = sizeOf(b.title);
   if (sa && sb && sa !== sb) score *= 0.5; // different size = different product
@@ -225,3 +241,16 @@ export function matchScore(a, b) {
 }
 
 export const AUTO_MATCH_THRESHOLD = 0.85;
+export const MIN_MATCH_SCORE = 0.6; // below this we don't even suggest a match
+
+// Short search phrase for another store: brand + the first words of the title,
+// without size/pack details that stores word differently.
+export function searchQuery(item) {
+  const title = item.title
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .split(/[,|–—]| - /)[0]
+    .replace(/\b\d+(\.\d+)?\s*(fl\.?\s*oz|oz|ml|g|ct|count|pack)\b/gi, ' ');
+  const words = title.split(/\s+/).filter(Boolean);
+  const brand = item.brand && !title.toLowerCase().includes(item.brand.toLowerCase()) ? [item.brand] : [];
+  return [...brand, ...words].slice(0, 9).join(' ');
+}

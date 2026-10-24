@@ -37,7 +37,7 @@ async function refresh(refreshToken) {
   return session;
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, prefer } = {}) {
   const session = await getSession();
   if (!session) throw new Error('Not connected — open the extension and connect your account.');
   const res = await fetch(`${SUPABASE_URL}${path}`, {
@@ -46,6 +46,7 @@ export async function api(path, { method = 'GET', body } = {}) {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
+      ...(prefer ? { Prefer: prefer } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });

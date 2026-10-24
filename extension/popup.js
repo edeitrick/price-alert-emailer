@@ -35,7 +35,10 @@ function showRefreshFooter() {
     const result = await chrome.runtime.sendMessage({ type: 'refresh-now' });
     $('refresh').textContent = result?.error
       ? `Couldn't check: ${result.error}`
-      : result?.skipped ? `Already checking` : `Checked ${result.checked} price${result.checked === 1 ? '' : 's'}${result.failed ? `, ${result.failed} not found` : ''}`;
+      : result?.skipped ? `Already checking`
+      : `Checked ${result.checked} price${result.checked === 1 ? '' : 's'}` +
+        (result.matched ? `, found ${result.matched} at other stores` : '') +
+        (result.failed ? `, ${result.failed} not found` : '');
     showLastRefresh();
   };
 }
@@ -81,7 +84,7 @@ async function init() {
     e.preventDefault();
     $('error').hidden = true;
     try {
-      await rpc('save_item', {
+      const itemId = await rpc('save_item', {
         p_url: canonicalUrl(tab.url),
         p_domain: domain,
         p_title: $('title').textContent,
@@ -96,6 +99,8 @@ async function init() {
       $('email').textContent = session.email ?? 'you';
       $('dashboard').href = `${WEB_APP_URL}/dashboard`;
       show('done');
+      // Look for the same item at the user's other stores (runs in a minimized window).
+      chrome.runtime.sendMessage({ type: 'match-item', itemId });
     } catch (err) {
       showError(`Couldn't save: ${err.message}`);
     }
