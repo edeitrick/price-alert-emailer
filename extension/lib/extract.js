@@ -86,8 +86,9 @@ const compatible = (a, b) => a === b || a === 'oz' && (b === 'vol' || b === 'wt'
 
 // true = same size, false = different, null = can't tell.
 export function sameSize(a, b) {
+  // A multi-pack vs a listing that doesn't mention a pack is almost always a single.
+  if ((a?.pack ?? 1) !== (b?.pack ?? 1) && Math.max(a?.pack ?? 1, b?.pack ?? 1) > 1) return false;
   if (!a || !b) return null;
-  if (a.pack && b.pack && a.pack !== b.pack) return false;
   if (a.value == null || b.value == null || !compatible(a.kind, b.kind)) return a.pack && b.pack ? true : null;
   return Math.abs(a.value - b.value) / Math.max(a.value, b.value) <= 0.03; // 13.5 oz ≈ 13.52 fl oz
 }
