@@ -70,10 +70,13 @@ saving an item. Each saved item shows:
 - **Alert emails come from `alerts@alerts.beyondaiaccess.com`.** Add that address to your contacts
   so alerts don't land in spam. Check your spam folder the first time.
 - **You get one email per drop.** You only get another if the price falls even further.
-- **Amazon prices are checked by the extension in your own Chrome, so Chrome needs to be open.**
-  It doesn't have to be the window you're using; just don't quit Chrome entirely.
-- **Early version:** Sephora, Ulta, and Target items save fine, but automatic price updates for
-  those stores aren't working yet. Amazon is the most reliable store right now.
+- **Prices are read by the extension in your own Chrome, so Chrome needs to be open.** Every 6
+  hours a minimized Chrome window briefly opens, loads your saved products, and closes again.
+  That's normal. Chrome doesn't need to be the window you're using, but don't quit it entirely.
+- **Want a fresh check right away?** Click the extension icon, then **Check my prices now** at the
+  bottom. It also shows when your prices were last checked.
+- **Early version:** if you paste a link from another store yourself on the dashboard, both stores
+  are watched. Automatically finding the same item at your other stores isn't working yet.
 
 ---
 
