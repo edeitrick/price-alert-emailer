@@ -1,5 +1,5 @@
 import { getSession, rpc } from './lib/supabase.js';
-import { extractProduct, domainOf } from './lib/extract.js';
+import { extractProduct, domainOf, canonicalUrl } from './lib/extract.js';
 import { WEB_APP_URL, DEFAULT_THRESHOLD_PCT, CATEGORIES, DEFAULT_CATEGORY_BY_DOMAIN } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -58,7 +58,7 @@ async function init() {
     $('error').hidden = true;
     try {
       await rpc('save_item', {
-        p_url: tab.url,
+        p_url: canonicalUrl(tab.url),
         p_domain: domain,
         p_title: $('title').textContent,
         p_price: parseFloat($('price').value),

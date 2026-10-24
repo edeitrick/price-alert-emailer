@@ -14,6 +14,18 @@ export function domainOf(url) {
   return host.split('.').slice(-2).join('.');
 }
 
+// Strips tracking from product links (e.g. Amazon's /ref=…?crid=… → /dp/ASIN).
+export function canonicalUrl(url) {
+  const u = new URL(url);
+  const asin = u.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/);
+  if (domainOf(url) === 'amazon.com' && asin) return `https://www.amazon.com/dp/${asin[1]}`;
+  for (const key of [...u.searchParams.keys()]) {
+    if (/^(utm_|ref|crid|sprefix|qid|keywords|dib|gclid|fbclid|icid|om_)/i.test(key)) u.searchParams.delete(key);
+  }
+  u.hash = '';
+  return u.toString();
+}
+
 export function parsePrice(value) {
   if (value == null) return null;
   if (typeof value === 'number') return value > 0 ? value : null;
@@ -67,13 +79,11 @@ function offerFrom(offers) {
   let best = {};
   for (const o of list) {
     const price = parsePrice(o.price ?? o.lowPrice ?? o.priceSpecification?.price);
-    if (price && (!best.price || price < best.price)) {
-      best = {
-        price,
-        currency: o.priceCurrency ?? o.priceSpecification?.priceCurrency,
-        inStock: o.availability ? !/OutOfStock|SoldOut|Discontinued/i.test(o.availability) : true,
-      };
-    }
+    if (!price) continue;
+    const inStock = o.availability ? !/OutOfStock|SoldOut|Discontinued/i.test(o.availability) : true;
+    // Cheapest in-stock offer wins; an out-of-stock one only if nothing is in stock.
+    const better = !best.price || (inStock && !best.inStock) || (inStock === best.inStock && price < best.price);
+    if (better) best = { price, inStock, currency: o.priceCurrency ?? o.priceSpecification?.priceCurrency };
   }
   return best;
 }
@@ -84,17 +94,50 @@ function amazonFallback(html) {
     html.match(/"priceAmount"\s*:\s*([\d.]+)/) ??
     html.match(/<span class=["']a-offscreen["']>\s*\$([\d,.]+)\s*<\/span>/);
   const asin = html.match(/name=["']ASIN["'][^>]*value=["']([A-Z0-9]{10})["']/);
+  const imgTag = html.match(/<img[^>]*\bid=["']landingImage["'][^>]*>/)?.[0] ?? '';
+  const image = imgTag.match(/data-old-hires=["'](https[^"']+)["']/) ?? imgTag.match(/\bsrc=["'](https[^"']+)["']/)
+    ?? decodeEntities(imgTag).match(/(https:\/\/[^"]+?\.jpg)/);
+  // Brand row in the product overview table, else the "Visit the X Store" byline.
+  const overview = html.match(/po-brand[\s\S]{0,800}?po-break-word["'][^>]*>([^<]+)</);
+  const byline = html.match(/<a[^>]*\bid=["']bylineInfo["'][^>]*>([\s\S]*?)<\/a>/i);
+  const brand = overview
+    ? decodeEntities(overview[1]).trim()
+    : byline
+      ? decodeEntities(byline[1].replace(/<[^>]+>/g, '')).trim().replace(/^(Visit the|Brand:)\s*/i, '').replace(/\s*Store$/i, '')
+      : null;
   return {
     title: title ? decodeEntities(title[1]).trim() : null,
+    image: image?.[1] ?? null,
+    brand: brand || null,
     price: price ? parsePrice(price[1]) : null,
     asin: asin?.[1] ?? null,
-    inStock: !/id=["']outOfStock["']|Currently unavailable/i.test(html),
+    // Only look inside the availability box; "Currently unavailable" appears elsewhere on most pages.
+    inStock: !/id=["']outOfStock["']/.test(html) &&
+      !/Currently unavailable|out of stock/i.test(
+        (html.match(/id=["']availability["'][\s\S]{0,600}/)?.[0] ?? '').replace(/<[^>]+>/g, ' ')),
+  };
+}
+
+// Sephora and others publish a ProductGroup (the product) with one Product per
+// shade/size. Use the variant in the URL (?skuId=) if any, else the cheapest one.
+function productFromGroup(group, url) {
+  const variants = (group.hasVariant ?? []).filter((v) => isType(v, 'Product'));
+  const sku = new URL(url).searchParams.get('skuId');
+  const variant = variants.find((v) => sku && String(v.sku) === sku);
+  return {
+    ...(variant ?? {}),
+    name: group.name ?? variant?.name,
+    brand: group.brand ?? variant?.brand,
+    image: variant?.image ?? group.image ?? variants[0]?.image,
+    offers: variant ? variant.offers : variants.flatMap((v) => [].concat(v.offers ?? [])),
   };
 }
 
 // Returns { title, brand, gtin, image, price, currency, inStock } — any field may be null.
 export function extractProduct(html, url) {
-  const product = jsonLdNodes(html).find((n) => isType(n, 'Product')) ?? {};
+  const nodes = jsonLdNodes(html);
+  const group = nodes.find((n) => isType(n, 'ProductGroup'));
+  const product = group ? productFromGroup(group, url) : nodes.find((n) => isType(n, 'Product')) ?? {};
   const offer = offerFrom(product.offers);
   const brand = typeof product.brand === 'string' ? product.brand : product.brand?.name;
   const image = Array.isArray(product.image) ? product.image[0] : product.image?.url ?? product.image;
@@ -113,6 +156,8 @@ export function extractProduct(html, url) {
     const a = amazonFallback(html);
     result.title = a.title ?? result.title;
     result.price = a.price ?? result.price;
+    result.image = a.image ?? result.image;
+    result.brand = result.brand ?? a.brand;
     result.inStock = a.inStock;
   }
   return result;
