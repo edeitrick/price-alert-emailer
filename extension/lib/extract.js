@@ -241,10 +241,12 @@ export function extractProduct(html, url, { preferSize } = {}) {
   return result;
 }
 
-// Links to other sizes of the product on its page (e.g. Ulta's 1.6 oz / 6.7 oz / 13.5 oz buttons).
+// Links to other sizes of the product on its page (Ulta's 1.6 oz / 6.7 oz / 13.5 oz
+// buttons, Target's 1.69 fl oz / 13.52 fl oz buttons): short links whose text is a size.
 export function extractSizeOptions(html, pageUrl) {
   const options = [];
-  for (const [, href, inner] of html.matchAll(/<a[^>]+href=["']([^"']*[?&](?:sku|skuId|variant)=[^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi)) {
+  for (const [, href, inner] of html.matchAll(/<a\b[^>]*href=["']([^"'#][^"']*)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi)) {
+    if (/^javascript:/i.test(href)) continue;
     const text = decodeEntities(inner.replace(/<[^>]+>/g, ' ')).trim();
     if (text.length > 40) continue;
     const size = parseSize(text);
@@ -253,23 +255,54 @@ export function extractSizeOptions(html, pageUrl) {
   return options;
 }
 
-// Product page links from a store's search results page.
+const NOT_PRODUCT_PATH = /^\/?$|\/$|\/(cart|bag|basket|account|login|signin|search|help|stores?|store-locator|gift-?cards?|wishlist|favorites)(\/|$)/i;
+
+// Product page links from a store's search results page. Known stores use a
+// link pattern; any other store uses links that wrap a product image. Keeps
+// size-picking parameters (Target's ?preselect=, Ulta's ?sku=).
 export function extractSearchLinks(html, searchUrl, limit = 5) {
   const pattern = PRODUCT_LINK_PATTERNS[domainOf(searchUrl)];
-  if (!pattern) return [];
+  const host = new URL(searchUrl).host;
+  const hrefs = pattern
+    ? [...html.matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1]).filter((h) => pattern.test(decodeEntities(h)))
+    : [...html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>((?:(?!<\/a>)[\s\S]){0,3000}?)<\/a>/gi)]
+        .filter((m) => /<img\b/i.test(m[2]))
+        .map((m) => m[1]);
   const links = new Set();
-  for (const [, href] of html.matchAll(/href=["']([^"']+)["']/gi)) {
-    const path = decodeEntities(href);
-    if (!pattern.test(path)) continue;
+  for (const href of hrefs) {
     try {
-      const abs = new URL(path, searchUrl);
-      abs.search = '';
-      abs.hash = '';
-      links.add(abs.toString());
+      const abs = new URL(decodeEntities(href), searchUrl);
+      if (abs.host !== host || (!pattern && NOT_PRODUCT_PATH.test(abs.pathname))) continue;
+      links.add(canonicalUrl(abs.toString()));
     } catch { /* ignore bad hrefs */ }
     if (links.size >= limit) break;
   }
   return [...links];
+}
+
+// The store's search page as a template with {q}, from the page's structured
+// data or its search box. Null if the page doesn't have one we can use.
+export function discoverSearchUrl(html, pageUrl) {
+  for (const node of jsonLdNodes(html)) {
+    const actions = [].concat(node.potentialAction ?? []);
+    for (const a of actions) {
+      const template = typeof a.target === 'string' ? a.target : a.target?.urlTemplate;
+      const param = String(a['query-input'] ?? '').match(/name=(\w+)/)?.[1] ?? 'search_term_string';
+      if (template?.includes(`{${param}}`)) return new URL(template.replace(`{${param}}`, '{q}'), pageUrl).toString();
+    }
+  }
+  for (const [form, attrs, body] of html.matchAll(/<form\b([^>]*)>([\s\S]{0,4000}?)<\/form>/gi)) {
+    if (!/role=["']search["']|action=["'][^"']*search/i.test(attrs) || /method=["']post/i.test(attrs)) continue;
+    const action = attrs.match(/action=["']([^"']+)["']/)?.[1];
+    const input = body.match(/<input\b[^>]*type=["'](?:search|text)["'][^>]*>/i)?.[0] ?? body.match(/<input\b[^>]*name=["'](?:q|query|search|searchTerm|keyword|k|s)["'][^>]*>/i)?.[0];
+    const name = input?.match(/name=["']([^"']+)["']/)?.[1];
+    if (action && name) {
+      const url = new URL(decodeEntities(action), pageUrl);
+      url.searchParams.set(name, '{q}');
+      return url.toString().replace('%7Bq%7D', '{q}');
+    }
+  }
+  return null;
 }
 
 // --- Matching ----------------------------------------------------------------
@@ -287,8 +320,16 @@ export function normalizeTitle(title) {
     .replace(new RegExp(PACK_RE.source, 'gi'), ' ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
-    .filter((w) => w && !STOPWORDS.has(w) && !/^\d+$/.test(w))
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w)) // keeps model numbers like "11"; drops the "s" of "women's"
     .map((w) => SYNONYMS[w] ?? w);
+}
+
+function genderOf(text) {
+  const t = text.toLowerCase();
+  if (/\b(women'?s?|womens|ladies|female)\b/.test(t)) return 'women';
+  if (/\b(men'?s?|mens|male)\b/.test(t)) return 'men';
+  if (/\b(kids'?|boys'?|girls'?|youth|toddler|baby)\b/.test(t)) return 'kids';
+  return null;
 }
 
 // Title words that describe the product, minus the brand's own words.
@@ -312,6 +353,16 @@ export function matchScore(a, b) {
   if (a.brand && b.brand && !brandKey(a.brand).includes(brandKey(b.brand)) && !brandKey(b.brand).includes(brandKey(a.brand))) {
     score *= 0.5;
   }
+  // Model numbers ("Clifton 10" vs "Clifton 11") must agree when both titles have them.
+  const na = [...ta].filter((w) => /^\d+$/.test(w)).sort().join();
+  const nb = [...tb].filter((w) => /^\d+$/.test(w)).sort().join();
+  if (na && nb && na !== nb) score *= 0.3;
+
+  // Women's vs men's (or kids') versions are different products.
+  const ga = genderOf(`${a.title} ${a.size ?? ''}`);
+  const gb = genderOf(`${b.title} ${b.size ?? ''}`);
+  if (ga && gb && ga !== gb) score *= 0.3;
+
   // Different sizes or pack counts are different products. If either size is
   // unknown, cap the score so the match is never trusted without the user's ✓.
   const same = sameSize(parseSize(a.size) ?? parseSize(a.title), parseSize(b.size) ?? parseSize(b.title));

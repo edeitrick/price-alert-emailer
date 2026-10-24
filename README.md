@@ -88,9 +88,11 @@ saving an item. Each saved item shows:
 - **Want a fresh check right away?** Click the extension icon, then **Check my prices now** at the
   bottom. It also shows when your prices were last checked.
 - **Other stores are only checked if you've used them.** The app searches stores you've saved an
-  item from or pasted a link from, and only ones that sell that kind of item. It searches Amazon,
-  Sephora, Ulta, and Target; other stores (like Hoka or Dick's) are watched for the links you save,
-  but not searched.
+  item from or pasted a link from, and only ones that sell that kind of item. It learns each new
+  store's search page the first time you save from it, so most stores (Amazon, Sephora, Ulta,
+  Target, Hoka, Dick's, and others) can be searched.
+- **It's careful about look-alikes:** a different size, pack count, model number (Clifton 10 vs 11),
+  or women's vs men's version is never treated as the same product.
 - **After you save something,** a minimized window opens for a minute or two while the app looks
   for it at your other stores. Prices it finds show up on the dashboard right away.
 

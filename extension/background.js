@@ -43,7 +43,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'match-item' && msg.itemId) {
-    runAll({ itemIds: [msg.itemId] }).then(sendResponse, (err) => sendResponse({ error: err.message }));
+    // The new item first, then any other items still waiting to be searched.
+    runAll({ firstItemId: msg.itemId }).then(sendResponse, (err) => sendResponse({ error: err.message }));
     return true;
   }
 });
@@ -84,23 +85,33 @@ async function loadAndRead(tabId, url, read) {
   return null;
 }
 
-// `preferSize` picks the right shade/size on pages that list several.
-const readProduct = (tabId, url, preferSize) =>
-  loadAndRead(tabId, url, (html, pageUrl) => {
-    const product = extractProduct(html, pageUrl, { preferSize });
-    return product.price ? { ...product, sizeOptions: extractSizeOptions(html, pageUrl) } : null;
+// `preferSize` picks the right shade/size on pages that list several. Some pages
+// (Target) show no price until a size is picked; for those this returns the
+// product with price null and its size buttons, once the wait runs out.
+async function readProduct(tabId, url, preferSize) {
+  let partial = null;
+  const found = await loadAndRead(tabId, url, (html, pageUrl) => {
+    const product = { ...extractProduct(html, pageUrl, { preferSize }), sizeOptions: extractSizeOptions(html, pageUrl) };
+    if (product.price) return product;
+    if (product.sizeOptions.length) partial = product;
+    return null;
   });
+  return found ?? partial;
+}
 
 // Reads a candidate; if it's a different size from the item but the page links
 // to the item's size (e.g. Ulta's size buttons), reads that size instead.
 async function readCandidate(tabId, url, itemSize) {
   const product = await readProduct(tabId, url, itemSize);
-  if (!product || !itemSize || sameSize(parseSize(product.size), itemSize) !== false) return product && { url, product };
-  const option = product.sizeOptions.find((o) => sameSize(o.size, itemSize));
-  if (!option) return { url, product };
+  if (!product) return null;
+  const wrongSize = itemSize && sameSize(parseSize(product.size), itemSize) === false;
+  if (product.price && !wrongSize) return { url, product };
+  const option = itemSize && product.sizeOptions.find((o) => sameSize(o.size, itemSize));
+  if (!option) return product.price ? { url, product } : null;
   await sleep(BETWEEN_PAGES_MS);
   const sized = await readProduct(tabId, option.url, itemSize);
-  return sized ? { url: canonicalUrl(option.url), product: sized } : { url, product };
+  if (sized?.price) return { url: canonicalUrl(option.url), product: sized };
+  return product.price ? { url, product } : null;
 }
 
 const readSearchResults = (tabId, url) =>
@@ -111,18 +122,17 @@ const readSearchResults = (tabId, url) =>
 
 // --- Cross-store matching ------------------------------------------------------
 
-async function matchItems(tabId, itemIds) {
+async function matchItems(tabId, firstItemId) {
   const stats = { searched: 0, matched: 0 };
-  const filter = itemIds ? `&id=in.(${itemIds.join(',')})` : '';
-  const items = await api(
-    `/rest/v1/items?select=id,title,brand,gtin,size,category,matched_at,listings(store_id,url,status)&active=eq.true${filter}`,
-  );
+  const items = (await api(
+    '/rest/v1/items?select=id,title,brand,gtin,size,category,matched_at,listings(store_id,url,status)&active=eq.true',
+  )).sort((a, b) => (b.id === firstItemId) - (a.id === firstItemId));
   const userStores = (await api('/rest/v1/user_stores?select=stores(id,name,categories,search_url)'))
     .map((us) => us.stores)
     .filter((s) => s?.search_url);
 
   for (const item of items) {
-    if (!itemIds && item.matched_at && Date.now() - Date.parse(item.matched_at) < REMATCH_AFTER_MS) continue;
+    if (item.id !== firstItemId && item.matched_at && Date.now() - Date.parse(item.matched_at) < REMATCH_AFTER_MS) continue;
     const listedStores = new Set(item.listings.map((l) => l.store_id));
     const rejected = new Set(item.listings.filter((l) => l.status === 'rejected').map((l) => l.url));
     // Only stores this user has saved from or added a link for, in the item's category.
@@ -174,12 +184,11 @@ async function matchItems(tabId, itemIds) {
 
 // --- Price refresh -------------------------------------------------------------
 
-async function refreshPrices(tabId, itemIds) {
+async function refreshPrices(tabId) {
   const stats = { checked: 0, failed: 0 };
-  const filter = itemIds ? `&item_id=in.(${itemIds.join(',')})` : '';
   const listings = await api(
     '/rest/v1/listings?select=id,url,size,last_checked_at,stores!inner(server_fetch),items!inner(active,size,title)' +
-    `&stores.server_fetch=eq.false&items.active=eq.true&status=neq.rejected${filter}`,
+    '&stores.server_fetch=eq.false&items.active=eq.true&status=neq.rejected',
   );
   for (const listing of listings) {
     if (listing.last_checked_at && Date.now() - Date.parse(listing.last_checked_at) < RECHECK_AFTER_MS) continue;
@@ -198,7 +207,7 @@ async function refreshPrices(tabId, itemIds) {
 }
 
 // Matches first, so new store listings arrive with prices; then refreshes the rest.
-async function runAll({ itemIds } = {}) {
+async function runAll({ firstItemId } = {}) {
   if (running) return { skipped: 'already running' };
   if (!(await getSession())) return { skipped: 'not signed in' };
   running = true;
@@ -209,8 +218,8 @@ async function runAll({ itemIds } = {}) {
     const tabId = win.tabs[0].id;
     await chrome.tabs.update(tabId, { muted: true });
 
-    const matched = await matchItems(tabId, itemIds);
-    const prices = await refreshPrices(tabId, itemIds);
+    const matched = await matchItems(tabId, firstItemId);
+    const prices = await refreshPrices(tabId);
     const stats = { ...matched, ...prices };
     await chrome.storage.local.set({ lastRefresh: { at: Date.now(), ...stats } });
     return stats;

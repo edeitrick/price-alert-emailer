@@ -1,5 +1,5 @@
 import { getSession, rpc } from './lib/supabase.js';
-import { extractProduct, domainOf, canonicalUrl, parseSize } from './lib/extract.js';
+import { extractProduct, domainOf, canonicalUrl, parseSize, discoverSearchUrl } from './lib/extract.js';
 import { WEB_APP_URL, DEFAULT_THRESHOLD_PCT, CATEGORIES, DEFAULT_CATEGORY_BY_DOMAIN } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -98,6 +98,7 @@ async function init() {
         p_size: size?.label ?? null,
         p_size_value: size?.value ?? null,
         p_pack: size?.pack ?? null,
+        p_search_url: discoverSearchUrl(html, tab.url),
         p_currency: product.currency,
       });
       $('email').textContent = session.email ?? 'you';
