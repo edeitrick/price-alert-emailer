@@ -8,14 +8,6 @@ Google Chrome and a Google account (Gmail).
 
 ---
 
-## Before you start
-
-The app is still in testing, so Google only allows people on its approved list to sign in.
-**Send Elise the Gmail address you'll use** and wait until she says you've been added. Otherwise
-Google will show an "Access blocked" message when you try to sign in.
-
----
-
 ## Step 1: Download the extension
 
 1. Go to **https://github.com/edeitrick/price-alert-emailer**.
@@ -41,7 +33,7 @@ Google will show an "Access blocked" message when you try to sign in.
 
 1. Click the **Price Alert Emailer** icon in your toolbar.
 2. Click **Sign in with Google**. A new tab opens.
-3. Choose your Google account. Google may warn that the app hasn't been verified; click **Continue**.
+3. Choose your Google account. If Google asks you to confirm signing in, click **Continue**.
 4. The page says **"✓ Connected."** You can close that tab.
 
 ## Step 4: Save your first item
@@ -89,7 +81,6 @@ saving an item. Each saved item shows:
 
 | What you see | What to do |
 |---|---|
-| **"Access blocked"** or **"app is being tested"** from Google | Elise hasn't added your Gmail address yet; ask her to. |
 | **"Couldn't reach the extension"** after signing in | Go to `chrome://extensions`, click the circular **reload arrow** on Price Alert Emailer, then click its icon and **Sign in with Google** again. |
 | The popup asks you to sign in again | Click **Sign in with Google**; you won't need to re-enter your password if you're still signed in to Google. |
 | **"Couldn't read the price on this page"** | Type the price in yourself and save as normal. |
