@@ -49,6 +49,67 @@ function meta(html, key) {
   return m ? decodeEntities(m[1] ?? m[2]).trim() : null;
 }
 
+// --- Sizes -------------------------------------------------------------------
+// Different sizes of the same product are different products for price alerts,
+// so sizes are read from the page and compared in ounce-equivalents.
+
+const SIZE_RE = /(\d+(?:\.\d+)?)\s*(fl\.?\s*oz\.?|fluid\s*ounces?|ml|milliliters?|millilitres?|kg|kilograms?|lbs?|pounds?|oz\.?|ounces?|g|grams?|l|liters?|litres?|ct|count|pieces|pcs)(?![a-z])/i;
+const PACK_RE = /(?:pack|set|case|box)\s+of\s+(\d+)|(\d+)\s*[- ]?(?:pack|pk|ct pack)\b|\(\s*(\d+)\s*(?:items?|pack|count)\s*\)/i;
+
+function unitInfo(unit) {
+  const u = unit.toLowerCase().replace(/[\s.]/g, '');
+  if (/^(floz|fluidounces?)$/.test(u)) return ['vol', 1];
+  if (/^(ml|milliliters?|millilitres?)$/.test(u)) return ['vol', 1 / 29.5735];
+  if (/^(l|liters?|litres?)$/.test(u)) return ['vol', 33.814];
+  if (/^(oz|ounces?)$/.test(u)) return ['oz', 1]; // could be fluid or weight
+  if (/^(g|grams?)$/.test(u)) return ['wt', 1 / 28.3495];
+  if (/^(kg|kilograms?)$/.test(u)) return ['wt', 35.274];
+  if (/^(lbs?|pounds?)$/.test(u)) return ['wt', 16];
+  return ['count', 1];
+}
+
+// "13.52 fl oz (Pack of 2)" → { label, value (oz-equivalent), kind, pack }. Null if no size.
+export function parseSize(text) {
+  if (!text) return null;
+  const t = decodeEntities(String(text));
+  const m = t.match(SIZE_RE);
+  const p = t.match(PACK_RE);
+  const pack = p ? Number(p[1] ?? p[2] ?? p[3]) : null;
+  if (!m && !pack) return null;
+  if (!m) return { label: `Pack of ${pack}`, value: null, kind: null, pack };
+  const [kind, factor] = unitInfo(m[2]);
+  const label = `${parseFloat(m[1])} ${m[2].replace(/\.$/, '').toLowerCase().replace(/\s+/g, ' ')}${pack > 1 ? ` (pack of ${pack})` : ''}`;
+  return { label, value: parseFloat(m[1]) * factor, kind, pack };
+}
+
+const compatible = (a, b) => a === b || a === 'oz' && (b === 'vol' || b === 'wt') || b === 'oz' && (a === 'vol' || a === 'wt');
+
+// true = same size, false = different, null = can't tell.
+export function sameSize(a, b) {
+  if (!a || !b) return null;
+  if (a.pack && b.pack && a.pack !== b.pack) return false;
+  if (a.value == null || b.value == null || !compatible(a.kind, b.kind)) return a.pack && b.pack ? true : null;
+  return Math.abs(a.value - b.value) / Math.max(a.value, b.value) <= 0.03; // 13.5 oz ≈ 13.52 fl oz
+}
+
+// The best size text on a product page: structured data, then store details, then the title.
+function sizeText(html, product, url) {
+  const fromLd = product.size ?? product.Size ?? product.weight?.value;
+  if (fromLd) return typeof fromLd === 'object' ? `${fromLd.value} ${fromLd.unitText ?? ''}` : String(fromLd);
+  if (domainOf(url) === 'amazon.com') {
+    const twister = html.match(/(?:inline-twister-expanded-dimension-text-size_name|id=["']variation_size_name["'][\s\S]{0,600}?class=["']selection)["'][^>]*>([^<]+)</);
+    if (twister && parseSize(twister[1])) return twister[1];
+    for (const row of ['po-size', 'po-item_volume', 'po-unit_count', 'po-net_content_volume']) {
+      const m = html.match(new RegExp(`${row}[\\s\\S]{0,800}?po-break-word["'][^>]*>([^<]+)<`));
+      if (m && parseSize(m[1])?.value) return m[1];
+    }
+    const details = html.replace(/<[^>]+>/g, ' ').match(/(?:Unit Count|Item Volume|Size)\s*[:‎\s]*(\d+(?:\.\d+)?\s*(?:Fluid Ounces?|fl\.?\s*oz|Ounces?|ml|Grams?|Count))/i);
+    if (details) return details[1];
+  }
+  const labelled = html.replace(/<[^>]+>/g, ' ').match(/\bSize:?\s+(\d+(?:\.\d+)?\s*(?:fl\.?\s*oz|oz|ml|g)\b[^\s<]*)/i);
+  return labelled?.[1] ?? null;
+}
+
 function jsonLdNodes(html) {
   const nodes = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -119,11 +180,13 @@ function amazonFallback(html) {
 }
 
 // Sephora and others publish a ProductGroup (the product) with one Product per
-// shade/size. Use the variant in the URL (?skuId=) if any, else the cheapest one.
-function productFromGroup(group, url) {
+// shade/size. Use the variant in the URL (?skuId=), else one matching the size
+// we're looking for, else the cheapest one.
+function productFromGroup(group, url, preferSize) {
   const variants = (group.hasVariant ?? []).filter((v) => isType(v, 'Product'));
   const sku = new URL(url).searchParams.get('skuId');
-  const variant = variants.find((v) => sku && String(v.sku) === sku);
+  const variant = variants.find((v) => sku && String(v.sku) === sku)
+    ?? (preferSize ? variants.find((v) => sameSize(parseSize(v.size ?? v.name), preferSize)) : undefined);
   return {
     ...(variant ?? {}),
     name: group.name ?? variant?.name,
@@ -133,11 +196,12 @@ function productFromGroup(group, url) {
   };
 }
 
-// Returns { title, brand, gtin, image, price, currency, inStock } — any field may be null.
-export function extractProduct(html, url) {
+// Returns { title, brand, gtin, image, price, currency, inStock, size } — any field may be null.
+// `preferSize` (a parseSize result) picks the matching shade/size variant when a page has several.
+export function extractProduct(html, url, { preferSize } = {}) {
   const nodes = jsonLdNodes(html);
   const group = nodes.find((n) => isType(n, 'ProductGroup'));
-  const product = group ? productFromGroup(group, url) : nodes.find((n) => isType(n, 'Product')) ?? {};
+  const product = group ? productFromGroup(group, url, preferSize) : nodes.find((n) => isType(n, 'Product')) ?? {};
   const offer = offerFrom(product.offers);
   const brand = typeof product.brand === 'string' ? product.brand : product.brand?.name;
   const image = Array.isArray(product.image) ? product.image[0] : product.image?.url ?? product.image;
@@ -168,7 +232,25 @@ export function extractProduct(html, url) {
     result.brand = result.brand ?? (brand ? decodeEntities(brand[1]) : null);
     if (/data-test=["'][^"']*(?:outOfStock|soldOut)[^"']*["']/i.test(html)) result.inStock = false;
   }
+  // Size from the page, else the title; keep a pack count from the title ("(2 Items)").
+  const fromPage = parseSize(sizeText(html, product, url));
+  const fromTitle = parseSize(result.title);
+  const size = fromPage ?? fromTitle;
+  if (size && !size.pack && fromTitle?.pack) size.pack = fromTitle.pack;
+  result.size = size?.label ?? null;
   return result;
+}
+
+// Links to other sizes of the product on its page (e.g. Ulta's 1.6 oz / 6.7 oz / 13.5 oz buttons).
+export function extractSizeOptions(html, pageUrl) {
+  const options = [];
+  for (const [, href, inner] of html.matchAll(/<a[^>]+href=["']([^"']*[?&](?:sku|skuId|variant)=[^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi)) {
+    const text = decodeEntities(inner.replace(/<[^>]+>/g, ' ')).trim();
+    if (text.length > 40) continue;
+    const size = parseSize(text);
+    if (size?.value) options.push({ label: text, size, url: new URL(decodeEntities(href), pageUrl).toString() });
+  }
+  return options;
 }
 
 // Product page links from a store's search results page.
@@ -194,11 +276,6 @@ export function extractSearchLinks(html, searchUrl, limit = 5) {
 
 const STOPWORDS = new Set(['the', 'and', 'with', 'for', 'new', 'by', 'of', 'a', 'an', 'in', '-', '|', '&']);
 
-function sizeOf(title) {
-  const m = title.toLowerCase().match(/(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|ml|g|mg|lb|ct|count|pack)\b/);
-  return m ? `${parseFloat(m[1])}${m[2].replace(/[\s.]/g, '')}` : null;
-}
-
 // Words stores use interchangeably.
 const SYNONYMS = { facial: 'face', moisturiser: 'moisturizer', colour: 'color', lipstick: 'lip', moisturizing: 'moisturizer' };
 const brandKey = (x) => x.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -206,7 +283,8 @@ const brandKey = (x) => x.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 export function normalizeTitle(title) {
   return title
     .toLowerCase()
-    .replace(/\d+(?:\.\d+)?\s*(fl\.?\s*oz|oz|ml|g|mg|lb|ct|count|pack)\b/g, ' ') // sizes compared separately
+    .replace(new RegExp(SIZE_RE.source, 'gi'), ' ') // sizes and packs are compared separately
+    .replace(new RegExp(PACK_RE.source, 'gi'), ' ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((w) => w && !STOPWORDS.has(w) && !/^\d+$/.test(w))
@@ -234,9 +312,11 @@ export function matchScore(a, b) {
   if (a.brand && b.brand && !brandKey(a.brand).includes(brandKey(b.brand)) && !brandKey(b.brand).includes(brandKey(a.brand))) {
     score *= 0.5;
   }
-  const sa = sizeOf(a.title);
-  const sb = sizeOf(b.title);
-  if (sa && sb && sa !== sb) score *= 0.5; // different size = different product
+  // Different sizes or pack counts are different products. If either size is
+  // unknown, cap the score so the match is never trusted without the user's ✓.
+  const same = sameSize(parseSize(a.size) ?? parseSize(a.title), parseSize(b.size) ?? parseSize(b.title));
+  if (same === false) score *= 0.3;
+  else if (same === null) score = Math.min(score, AUTO_MATCH_THRESHOLD - 0.01);
   return Math.round(score * 100) / 100;
 }
 

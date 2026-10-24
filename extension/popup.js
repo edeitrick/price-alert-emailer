@@ -1,5 +1,5 @@
 import { getSession, rpc } from './lib/supabase.js';
-import { extractProduct, domainOf, canonicalUrl } from './lib/extract.js';
+import { extractProduct, domainOf, canonicalUrl, parseSize } from './lib/extract.js';
 import { WEB_APP_URL, DEFAULT_THRESHOLD_PCT, CATEGORIES, DEFAULT_CATEGORY_BY_DOMAIN } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -67,9 +67,10 @@ async function init() {
   });
   const product = extractProduct(html, tab.url);
   const domain = domainOf(tab.url);
+  const size = parseSize(product.size);
 
   $('title').textContent = product.title ?? tab.title;
-  $('store').textContent = domain;
+  $('store').textContent = size ? `${domain} · ${size.label}` : domain;
   if (product.image) $('image').src = product.image; else $('image').hidden = true;
   $('price').value = product.price ?? '';
   $('threshold').value = DEFAULT_THRESHOLD_PCT;
@@ -94,6 +95,9 @@ async function init() {
         p_brand: product.brand,
         p_gtin: product.gtin,
         p_image_url: product.image,
+        p_size: size?.label ?? null,
+        p_size_value: size?.value ?? null,
+        p_pack: size?.pack ?? null,
         p_currency: product.currency,
       });
       $('email').textContent = session.email ?? 'you';

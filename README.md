@@ -6,6 +6,10 @@ when the price drops, with a link straight to the deal.
 **Jess, these directions are for you.** Setup takes about 10 minutes. You need a computer with
 Google Chrome and a Google account (Gmail).
 
+> **Already set up? A new version is out.** Skip to [Updating to a new version](#updating-to-a-new-version)
+> (about 2 minutes). New in this version: the app finds your items at your other stores, pays
+> attention to sizes, and lets you merge items you saved twice.
+
 ---
 
 ## Step 1: Download the extension
@@ -59,8 +63,16 @@ saving an item. Each saved item shows:
 - **Paste this item's link from another store:** if you've seen the same product elsewhere, paste
   that link and click **Add store**. The app then watches both stores and emails you about
   whichever one is cheaper.
-- **✓ / ✗ on possible matches:** sometimes the app finds what it thinks is the same item at
-  another store you shop at. Click ✓ if it's the same product, ✗ if it isn't.
+- **✓ / ✗ on possible matches:** the app looks for the same item at other stores you've saved
+  from, and shows what it finds with its price. Click ✓ if it's the same product, ✗ if it isn't.
+  Anything it isn't sure about isn't used for alerts until you click ✓.
+- **Sizes:** each item and store shows its size (for example, 13.52 fl oz, or Pack of 2). The app
+  won't treat a different size or pack count as the same product.
+- **Merge into this:** saved the same product twice, say once from Amazon and once from Target?
+  Pick the other one from the menu under an item and click **Merge into this**. All its store links
+  move onto this item, so you get one alert for whichever store is cheapest.
+- **"These look like the same product":** when two of your items look alike, a box at the top
+  suggests merging them. Click **Merge them**, or **Not the same** and it won't ask again.
 
 ---
 
@@ -75,8 +87,12 @@ saving an item. Each saved item shows:
   That's normal. Chrome doesn't need to be the window you're using, but don't quit it entirely.
 - **Want a fresh check right away?** Click the extension icon, then **Check my prices now** at the
   bottom. It also shows when your prices were last checked.
-- **Early version:** if you paste a link from another store yourself on the dashboard, both stores
-  are watched. Automatically finding the same item at your other stores isn't working yet.
+- **Other stores are only checked if you've used them.** The app searches stores you've saved an
+  item from or pasted a link from, and only ones that sell that kind of item. It searches Amazon,
+  Sephora, Ulta, and Target; other stores (like Hoka or Dick's) are watched for the links you save,
+  but not searched.
+- **After you save something,** a minimized window opens for a minute or two while the app looks
+  for it at your other stores. Prices it finds show up on the dashboard right away.
 
 ---
 
@@ -88,17 +104,29 @@ saving an item. Each saved item shows:
 | The popup asks you to sign in again | Click **Sign in with Google**; you won't need to re-enter your password if you're still signed in to Google. |
 | **"Couldn't read the price on this page"** | Type the price in yourself and save as normal. |
 | The extension disappeared | The `price-alert-emailer-main` folder was probably moved or deleted. Repeat Steps 1 and 2. |
+| An error on `chrome://extensions` after updating | The new folder isn't in the same place or has a different name. See step 5 of [Updating](#updating-to-a-new-version). |
 | No emails at all | Check spam, and check the dashboard: is the item paused, or has the price not yet dropped by your %? |
 
-## Getting updates
+## Updating to a new version
 
-When Elise says there's a new version:
+When Elise says there's a new version (about 2 minutes):
 
-1. Download the ZIP again (Step 1) and replace your old `price-alert-emailer-main` folder in
-   Documents with the new one.
-2. Go to `chrome://extensions` and click the **reload arrow** on Price Alert Emailer.
+1. **Download the new version:** go to **https://github.com/edeitrick/price-alert-emailer**, click
+   the green **Code** button, then **Download ZIP**.
+2. **Unzip it:** in **Downloads**, double-click `price-alert-emailer-main.zip`. You'll get a new
+   `price-alert-emailer-main` folder. If your Mac names it `price-alert-emailer-main 2`, rename it to
+   `price-alert-emailer-main`.
+3. **Replace the old folder:** in **Documents**, drag the old `price-alert-emailer-main` folder to
+   the Trash, then move the new one into **Documents**. It must end up in exactly the same place
+   with exactly the same name, so Chrome can find it.
+4. **Reload the extension:** go to `chrome://extensions` and click the circular **reload arrow** on
+   Price Alert Emailer.
+5. **Check it worked:** click the extension icon. You should see **Check my prices now** at the
+   bottom. If Chrome shows an error, or the extension is missing, click **Remove** on it, then
+   **Load unpacked** and pick the `extension` folder again (Step 2). You'll need to sign in again
+   (Step 3).
 
-Your saved items are stored online, so you won't lose them.
+Your saved items and alerts are stored online, so updating never loses them.
 
 ---
 

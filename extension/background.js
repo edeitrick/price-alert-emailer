@@ -3,7 +3,10 @@
 // Both load pages in a hidden (minimized) Chrome window, the same way a person
 // would see them: stores block or don't render prices for the cloud checker.
 import { api, rpc, setSession, clearSession, getSession } from './lib/supabase.js';
-import { extractProduct, extractSearchLinks, matchScore, searchQuery, canonicalUrl, MIN_MATCH_SCORE } from './lib/extract.js';
+import {
+  extractProduct, extractSearchLinks, extractSizeOptions, matchScore, searchQuery, canonicalUrl,
+  parseSize, sameSize, MIN_MATCH_SCORE,
+} from './lib/extract.js';
 
 const ALARM = 'refresh-prices';
 const PAGE_TIMEOUT_MS = 20_000; // give up on a page that never shows a price
@@ -81,11 +84,24 @@ async function loadAndRead(tabId, url, read) {
   return null;
 }
 
-const readProduct = (tabId, url) =>
+// `preferSize` picks the right shade/size on pages that list several.
+const readProduct = (tabId, url, preferSize) =>
   loadAndRead(tabId, url, (html, pageUrl) => {
-    const product = extractProduct(html, pageUrl);
-    return product.price ? product : null;
+    const product = extractProduct(html, pageUrl, { preferSize });
+    return product.price ? { ...product, sizeOptions: extractSizeOptions(html, pageUrl) } : null;
   });
+
+// Reads a candidate; if it's a different size from the item but the page links
+// to the item's size (e.g. Ulta's size buttons), reads that size instead.
+async function readCandidate(tabId, url, itemSize) {
+  const product = await readProduct(tabId, url, itemSize);
+  if (!product || !itemSize || sameSize(parseSize(product.size), itemSize) !== false) return product && { url, product };
+  const option = product.sizeOptions.find((o) => sameSize(o.size, itemSize));
+  if (!option) return { url, product };
+  await sleep(BETWEEN_PAGES_MS);
+  const sized = await readProduct(tabId, option.url, itemSize);
+  return sized ? { url: canonicalUrl(option.url), product: sized } : { url, product };
+}
 
 const readSearchResults = (tabId, url) =>
   loadAndRead(tabId, url, (html) => {
@@ -99,7 +115,7 @@ async function matchItems(tabId, itemIds) {
   const stats = { searched: 0, matched: 0 };
   const filter = itemIds ? `&id=in.(${itemIds.join(',')})` : '';
   const items = await api(
-    `/rest/v1/items?select=id,title,brand,gtin,category,matched_at,listings(store_id,url,status)&active=eq.true${filter}`,
+    `/rest/v1/items?select=id,title,brand,gtin,size,category,matched_at,listings(store_id,url,status)&active=eq.true${filter}`,
   );
   const userStores = (await api('/rest/v1/user_stores?select=stores(id,name,categories,search_url)'))
     .map((us) => us.stores)
@@ -109,7 +125,9 @@ async function matchItems(tabId, itemIds) {
     if (!itemIds && item.matched_at && Date.now() - Date.parse(item.matched_at) < REMATCH_AFTER_MS) continue;
     const listedStores = new Set(item.listings.map((l) => l.store_id));
     const rejected = new Set(item.listings.filter((l) => l.status === 'rejected').map((l) => l.url));
+    // Only stores this user has saved from or added a link for, in the item's category.
     const targets = userStores.filter((s) => !listedStores.has(s.id) && s.categories.includes(item.category));
+    const itemSize = parseSize(item.size) ?? parseSize(item.title);
 
     for (const store of targets) {
       stats.searched++;
@@ -119,12 +137,12 @@ async function matchItems(tabId, itemIds) {
         .filter((u) => !rejected.has(u));
 
       let best = null;
-      for (const url of links) {
+      for (const link of links) {
         await sleep(BETWEEN_PAGES_MS);
-        const product = await readProduct(tabId, url);
-        if (!product) continue;
-        const score = matchScore(item, product);
-        if (!best || score > best.score) best = { url, product, score };
+        const candidate = await readCandidate(tabId, link, itemSize);
+        if (!candidate) continue;
+        const score = matchScore(item, candidate.product);
+        if (!best || score > best.score) best = { ...candidate, score };
         if (score === 1) break;
       }
 
@@ -138,6 +156,7 @@ async function matchItems(tabId, itemIds) {
             url: best.url,
             match_type: item.gtin && best.product.gtin ? 'gtin' : 'fuzzy',
             match_confidence: best.score,
+            size: best.product.size,
           },
         });
         if (listing) {
@@ -159,12 +178,13 @@ async function refreshPrices(tabId, itemIds) {
   const stats = { checked: 0, failed: 0 };
   const filter = itemIds ? `&item_id=in.(${itemIds.join(',')})` : '';
   const listings = await api(
-    '/rest/v1/listings?select=id,url,last_checked_at,stores!inner(server_fetch),items!inner(active)' +
+    '/rest/v1/listings?select=id,url,size,last_checked_at,stores!inner(server_fetch),items!inner(active,size,title)' +
     `&stores.server_fetch=eq.false&items.active=eq.true&status=neq.rejected${filter}`,
   );
   for (const listing of listings) {
     if (listing.last_checked_at && Date.now() - Date.parse(listing.last_checked_at) < RECHECK_AFTER_MS) continue;
-    const product = await readProduct(tabId, listing.url);
+    const size = parseSize(listing.size) ?? parseSize(listing.items.size) ?? parseSize(listing.items.title);
+    const product = await readProduct(tabId, listing.url, size);
     if (product) {
       await rpc('record_price', { p_listing_id: listing.id, p_price: product.price, p_in_stock: product.inStock });
       stats.checked++;

@@ -8,7 +8,10 @@ function ListingRow({ listing }) {
   const pending = listing.status === 'active' && listing.match_type !== 'origin';
   return (
     <tr className={listing.status === 'rejected' ? 'rejected' : ''}>
-      <td><a href={listing.url} target="_blank" rel="noreferrer">{listing.stores.name}</a></td>
+      <td>
+        <a href={listing.url} target="_blank" rel="noreferrer">{listing.stores.name}</a>
+        {listing.size && <span className="muted"> · {listing.size}</span>}
+      </td>
       <td>
         {listing.last_price == null ? <span className="muted">Checking soon</span> : money(listing.last_price)}
         {listing.in_stock === false && <span className="muted"> (out of stock)</span>}
@@ -43,6 +46,7 @@ function ItemCard({ item, otherItems }) {
         <div>
           <h3>{item.title}</h3>
           <p className="muted">
+            {item.size && <>{item.size} · </>}
             Saved at {money(item.baseline_price)} · alert at {money(target)} or less · {item.category}
             {!item.active && ' · paused'}
           </p>
@@ -99,8 +103,8 @@ function MergeSuggestion({ a, b, score }) {
         <span className="muted"> ({Math.round(score * 100)}% alike)</span>
       </p>
       <ul>
-        <li>{a.title}</li>
-        <li>{b.title}</li>
+        <li>{a.title}{a.size && <span className="muted"> · {a.size}</span>}</li>
+        <li>{b.title}{b.size && <span className="muted"> · {b.size}</span>}</li>
       </ul>
       <p className="muted">Merging puts all their store links on one item, so you get one alert for the cheapest store.</p>
       <div className="inline">
