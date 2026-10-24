@@ -1,69 +1,112 @@
 # Price Alert Emailer
 
-Save products with a Chrome extension, choose how much off they need to be, and get an email when the
-price drops — at the store you saved from **or** at other stores you shop in the same category.
+Save things you want to buy, choose how much of a discount you're waiting for, and get an email
+when the price drops, with a link straight to the deal.
 
-| Part | Where | Hosted on (free) |
-|---|---|---|
-| `web/` | Next.js app: Google sign-in, dashboard, extension connect page | Vercel |
-| `supabase/` | Postgres schema, row-level security, RPCs | Supabase |
-| `extension/` | Chrome extension (Manifest V3, no build step) | Chrome Web Store / load unpacked |
-| `checker/` | Price checker + emailer, every 6 hours | GitHub Actions |
+**Jess, these directions are for you.** Setup takes about 10 minutes. You need a computer with
+Google Chrome and a Google account (Gmail).
 
-## Setup
+---
 
-### 1. Supabase
-1. Create a project at supabase.com.
-2. SQL Editor → paste and run `supabase/migrations/0001_init.sql`.
-3. Project Settings → API: copy the **URL**, **anon key**, and **service-role key**.
-4. Authentication → URL Configuration: set **Site URL** to your web app URL and add
-   `http://localhost:3000/**` and `https://<your-app>.vercel.app/**` to **Redirect URLs**.
+## Before you start
 
-### 2. Google sign-in
-1. console.cloud.google.com → new project → APIs & Services → OAuth consent screen
-   (External; scopes `openid`, `email`, `profile` only — no Google verification needed).
-2. Credentials → Create OAuth client ID → **Web application**.
-   Authorized redirect URI: `https://<your-project>.supabase.co/auth/v1/callback`.
-3. Supabase → Authentication → Providers → Google: paste the client ID and secret, enable.
+The app is still in testing, so Google only allows people on its approved list to sign in.
+**Send Elise the Gmail address you'll use** and wait until she says you've been added. Otherwise
+Google will show an "Access blocked" message when you try to sign in.
 
-### 3. Run the web app locally
-```bash
-cp .env.example .env.local      # fill in the values
-cp .env.local web/.env.local
-cd web && npm install && npm run dev
-```
-Open http://localhost:3000 and sign in.
+---
 
-### 4. Load the extension
-1. Fill in `extension/config.js` (Supabase URL + **anon** key, web app URL).
-2. chrome://extensions → Developer mode → **Load unpacked** → pick the `extension/` folder.
-3. Click the extension → **Sign in with Google** → it connects automatically.
-4. Open a product page (Sephora, Ulta, Target, Amazon…) → click the extension → set % off → Save.
+## Step 1: Download the extension
 
-### 5. Email (Resend)
-Create an API key at resend.com. Without a verified domain, Resend only delivers to the address you
-signed up with — fine for testing. To email other users, verify a domain and set `EMAIL_FROM`.
+1. Go to **https://github.com/edeitrick/price-alert-emailer**.
+2. Click the green **Code** button, then **Download ZIP**.
+3. Open your **Downloads** folder and double-click `price-alert-emailer-main.zip` to unzip it.
+4. Move the unzipped `price-alert-emailer-main` folder into your **Documents** folder.
 
-### 6. Scheduled checker (GitHub Actions)
-Repo → Settings → Secrets and variables → Actions → add:
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `WEB_APP_URL`.
-Then Actions → **Check prices** → **Run workflow** to test. It runs every 6 hours after that.
-Run it locally with `cd checker && npm install && npm run check`.
+   Chrome runs the extension from this folder, so leave it there. If you delete or move it later,
+   the extension stops working.
 
-### 7. Deploy the web app (Vercel)
-Import the repo on vercel.com, set **Root Directory** to `web`, add the two `NEXT_PUBLIC_…` env vars.
-Then add the Vercel URL to: Supabase redirect URLs, `extension/manifest.json` → `externally_connectable`,
-`extension/config.js` → `WEB_APP_URL`, and the `WEB_APP_URL` GitHub secret.
+## Step 2: Add it to Chrome
 
-## How price checks work
-- **Cross-store matching:** for each item, the checker searches your other saved stores whose categories
-  include the item's category (beauty → Sephora, Ulta, Target…). It matches by barcode (GTIN) when available,
-  otherwise brand + title + size. Matches ≥ 85% confident are used automatically; lower ones wait for you
-  to confirm ✓/✗ on the dashboard. You can also paste a link from another store yourself.
-- **Prices:** stores that allow it are checked from GitHub Actions. Stores that block cloud servers
-  (Amazon, `server_fetch = false`) are refreshed by the extension from your browser every 6 hours while Chrome is open.
-- **Emails:** sent when the cheapest trusted, in-stock listing is at least your % below the price you saved at,
-  and only again if it drops further.
+1. In Chrome, type `chrome://extensions` into the address bar and press Enter.
+2. Turn on **Developer mode** with the switch in the top-right corner.
+3. Click **Load unpacked** (top left).
+4. Open `Documents` → `price-alert-emailer-main`, click the folder named **`extension`** once to
+   select it, then click **Select**.
+5. **Price Alert Emailer** now appears in your list of extensions.
+6. Click the **puzzle-piece icon** to the right of Chrome's address bar, then click the **pin**
+   next to Price Alert Emailer. Its icon now stays in your toolbar.
 
-Store sites change often; if a store's price stops being found, check the Actions log for
-`price check failed` lines. Respect each store's terms of use.
+## Step 3: Sign in
+
+1. Click the **Price Alert Emailer** icon in your toolbar.
+2. Click **Sign in with Google**. A new tab opens.
+3. Choose your Google account. Google may warn that the app hasn't been verified; click **Continue**.
+4. The page says **"✓ Connected."** You can close that tab.
+
+## Step 4: Save your first item
+
+1. Open a product page on **Amazon, Sephora, Ulta, or Target**.
+2. Click the **Price Alert Emailer** icon. You'll see the product's name, picture, and price.
+   - If the price box is empty, type in the price shown on the page.
+3. Under **Alert me when it's at least __% off**, enter the discount you're waiting for. The
+   default is 15%. The line underneath shows the exact price you'll be emailed at.
+4. Check the **Category** (Beauty, General, Electronics, or Home). It controls which of your other
+   stores get checked for the same item.
+5. Click **Save alert**. You'll see **"✓ Saved."**
+
+## Step 5: See and manage your alerts
+
+Go to **https://price-alert-emailer.vercel.app/dashboard**, or click **Open dashboard** after
+saving an item. Each saved item shows:
+
+- **Its prices** at each store, with links.
+- **Alert at __% off:** change the number and click **Update**.
+- **Pause alerts / Resume alerts:** stop emails for an item without deleting it.
+- **Delete:** remove the item completely.
+- **Paste this item's link from another store:** if you've seen the same product elsewhere, paste
+  that link and click **Add store**. The app then watches both stores and emails you about
+  whichever one is cheaper.
+- **✓ / ✗ on possible matches:** sometimes the app finds what it thinks is the same item at
+  another store you shop at. Click ✓ if it's the same product, ✗ if it isn't.
+
+---
+
+## What to expect
+
+- **Prices are checked every 6 hours.**
+- **Alert emails come from `alerts@alerts.beyondaiaccess.com`.** Add that address to your contacts
+  so alerts don't land in spam. Check your spam folder the first time.
+- **You get one email per drop.** You only get another if the price falls even further.
+- **Amazon prices are checked by the extension in your own Chrome, so Chrome needs to be open.**
+  It doesn't have to be the window you're using; just don't quit Chrome entirely.
+- **Early version:** Sephora, Ulta, and Target items save fine, but automatic price updates for
+  those stores aren't working yet. Amazon is the most reliable store right now.
+
+---
+
+## If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| **"Access blocked"** or **"app is being tested"** from Google | Elise hasn't added your Gmail address yet; ask her to. |
+| **"Couldn't reach the extension"** after signing in | Go to `chrome://extensions`, click the circular **reload arrow** on Price Alert Emailer, then click its icon and **Sign in with Google** again. |
+| The popup asks you to sign in again | Click **Sign in with Google**; you won't need to re-enter your password if you're still signed in to Google. |
+| **"Couldn't read the price on this page"** | Type the price in yourself and save as normal. |
+| The extension disappeared | The `price-alert-emailer-main` folder was probably moved or deleted. Repeat Steps 1 and 2. |
+| No emails at all | Check spam, and check the dashboard: is the item paused, or has the price not yet dropped by your %? |
+
+## Getting updates
+
+When Elise says there's a new version:
+
+1. Download the ZIP again (Step 1) and replace your old `price-alert-emailer-main` folder in
+   Documents with the new one.
+2. Go to `chrome://extensions` and click the **reload arrow** on Price Alert Emailer.
+
+Your saved items are stored online, so you won't lose them.
+
+---
+
+*Setting up your own copy of the whole app (database, website, email)? See
+[docs/SETUP.md](docs/SETUP.md).*
