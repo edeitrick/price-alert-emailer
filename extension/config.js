@@ -4,7 +4,7 @@ export const SUPABASE_URL = 'https://zkzedwhojkdlzlaypand.supabase.co';
 export const SUPABASE_ANON_KEY = 'sb_publishable_jCN26sNofHPXWzAZEL-W1A_KqfcPoBO';
 
 // Where the web app runs. Must also be listed in manifest.json → externally_connectable.
-export const WEB_APP_URL = 'http://localhost:3000';
+export const WEB_APP_URL = 'https://price-alert-emailer.vercel.app';
 
 export const DEFAULT_THRESHOLD_PCT = 15;
 export const CATEGORIES = ['beauty', 'general', 'electronics', 'home'];
