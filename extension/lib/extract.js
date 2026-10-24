@@ -160,6 +160,14 @@ export function extractProduct(html, url) {
     result.brand = result.brand ?? a.brand;
     result.inStock = a.inStock;
   }
+  if (domainOf(url) === 'target.com') {
+    // Target has no price in its structured data; it renders it a few seconds after load.
+    const price = html.match(/data-test=["']product-price["'][^>]*>\s*\$?([\d,]+(?:\.\d{2})?)/);
+    const brand = html.match(/"primary_brand"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"/);
+    result.price = result.price ?? (price ? parsePrice(price[1]) : null);
+    result.brand = result.brand ?? (brand ? decodeEntities(brand[1]) : null);
+    if (/data-test=["'][^"']*(?:outOfStock|soldOut)[^"']*["']/i.test(html)) result.inStock = false;
+  }
   return result;
 }
 

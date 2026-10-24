@@ -18,6 +18,28 @@ function updateTargetPrice() {
     : '';
 }
 
+async function showLastRefresh() {
+  const { lastRefresh } = await chrome.storage.local.get('lastRefresh');
+  $('last-refresh').textContent = lastRefresh
+    ? `Last checked ${new Date(lastRefresh.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+    : '';
+}
+
+// Prices are refreshed every 6 hours in a minimized window; this runs it now.
+function showRefreshFooter() {
+  $('footer').hidden = false;
+  showLastRefresh();
+  $('refresh').onclick = async (e) => {
+    e.preventDefault();
+    $('refresh').textContent = 'Checking… (a minimized window opens)';
+    const result = await chrome.runtime.sendMessage({ type: 'refresh-now' });
+    $('refresh').textContent = result?.error
+      ? `Couldn't check: ${result.error}`
+      : result?.skipped ? `Already checking` : `Checked ${result.checked} price${result.checked === 1 ? '' : 's'}${result.failed ? `, ${result.failed} not found` : ''}`;
+    showLastRefresh();
+  };
+}
+
 async function init() {
   const session = await getSession();
   if (!session) {
@@ -26,6 +48,8 @@ async function init() {
       chrome.tabs.create({ url: `${WEB_APP_URL}/connect?ext=${chrome.runtime.id}` });
     return;
   }
+
+  showRefreshFooter();
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url?.startsWith('http')) {
