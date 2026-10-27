@@ -200,38 +200,46 @@ async function searchOtherStores(tabId, item, userStores, stats) {
 
 // --- Price refresh -------------------------------------------------------------
 
-async function refreshPrices(tabId) {
+async function refreshPrices(tabId, details) {
   const stats = { checked: 0, failed: 0 };
   const listings = await api(
     '/rest/v1/listings?select=id,url,size,last_checked_at,stores!inner(server_fetch),items!inner(active,size,title)' +
     '&stores.server_fetch=eq.false&items.active=eq.true&status=neq.rejected',
   );
+  if (!listings.length) details.push({ ok: true, text: 'No store links to check' });
   const due = listings.filter((l) => !l.last_checked_at || Date.now() - Date.parse(l.last_checked_at) >= RECHECK_AFTER_MS);
   for (const [i, listing] of due.entries()) {
     await setStatus(`Checking prices (${i + 1} of ${due.length}): ${new URL(listing.url).hostname.replace(/^www\./, '')}`);
     try {
       const size = parseSize(listing.size) ?? parseSize(listing.items.size) ?? parseSize(listing.items.title);
       const product = await readProduct(tabId, listing.url, size);
+      const site = new URL(listing.url).hostname.replace(/^www\./, '');
       if (product?.price) {
         await rpc('record_price', { p_listing_id: listing.id, p_price: product.price, p_in_stock: product.inStock });
         stats.checked++;
+        details.push({ ok: true, text: `${site}: $${product.price.toFixed(2)}` });
       } else {
         stats.failed++;
-        console.warn('No price found', listing.url);
+        details.push({ ok: false, text: `${site}: no price found`, url: listing.url });
       }
     } catch (err) {
       stats.failed++;
-      console.warn('Price check failed', listing.url, err);
+      details.push({ ok: false, text: `${new URL(listing.url).hostname}: ${err.message.slice(0, 80)}`, url: listing.url });
     }
     await sleep(BETWEEN_PAGES_MS);
   }
+  if (listings.length && !due.length) details.push({ ok: true, text: 'All prices were checked in the last 30 minutes' });
   return stats;
 }
 
 // Matches first, so new store listings arrive with prices; then refreshes the rest.
 async function runAll({ firstItemId } = {}) {
   if (running) return { skipped: 'already running' };
-  if (!(await getSession())) return { skipped: 'not signed in' };
+  const session = await getSession();
+  if (!session) {
+    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), error: 'not signed in. Click Sign in with Google.' } });
+    return { skipped: 'not signed in' };
+  }
   running = true;
   await setStatus('Starting…');
   let windowId;
@@ -241,13 +249,14 @@ async function runAll({ firstItemId } = {}) {
     const tabId = win.tabs[0].id;
     await chrome.tabs.update(tabId, { muted: true });
 
+    const details = [];
     const matched = await matchItems(tabId, firstItemId);
-    const prices = await refreshPrices(tabId);
+    const prices = await refreshPrices(tabId, details);
     const stats = { ...matched, ...prices };
-    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), ...stats } });
+    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), account: session.email, details, ...stats } });
     return stats;
   } catch (err) {
-    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), error: err.message } });
+    await chrome.storage.local.set({ lastRefresh: { at: Date.now(), account: session.email, error: err.message } });
     throw err;
   } finally {
     running = false;

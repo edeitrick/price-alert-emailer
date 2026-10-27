@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Price Alert Emailer",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Save products and get an email when the price drops — at this store or others you shop.",
   "action": { "default_popup": "popup.html", "default_title": "Save to Price Alert Emailer" },
   "background": { "service_worker": "background.js", "type": "module" },

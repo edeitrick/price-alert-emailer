@@ -150,11 +150,22 @@ function offerFrom(offers) {
   return best;
 }
 
+// Kindle book pages have no price in Amazon's page data, and their first price
+// on the page is often another format's, so read the Kindle price box itself.
+function isKindlePage(html) {
+  return /id=["']kindle-price["']/.test(html)
+    || /<title>[^<]*(?:eBook|Kindle Store|Kindle Edition)[^<]*<\/title>/i.test(html);
+}
+
 function amazonFallback(html) {
   const title = html.match(/<span[^>]+id=["']productTitle["'][^>]*>([\s\S]*?)<\/span>/i);
-  const price =
-    html.match(/"priceAmount"\s*:\s*([\d.]+)/) ??
-    html.match(/<span class=["']a-offscreen["']>\s*\$([\d,.]+)\s*<\/span>/);
+  const kindle = isKindlePage(html);
+  const price = kindle
+    ? html.match(/id=["']kindle-price["'][^>]*>\s*\$?\s*([\d,]+\.\d{2})/)
+      ?? html.match(/id=["']tmm-grid-swatch-KINDLE["'][\s\S]{0,1500}?\$([\d,]+\.\d{2})\s*before credits/)
+      ?? html.match(/id=["']tmm-grid-swatch-KINDLE["'][\s\S]{0,1500}?\$([\d,]+\.\d{2})/)
+    : html.match(/"priceAmount"\s*:\s*([\d.]+)/) ??
+      html.match(/<span class=["']a-offscreen["']>\s*\$([\d,.]+)\s*<\/span>/);
   const asin = html.match(/name=["']ASIN["'][^>]*value=["']([A-Z0-9]{10})["']/);
   const imgTag = html.match(/<img[^>]*\bid=["']landingImage["'][^>]*>/)?.[0] ?? '';
   const image = imgTag.match(/data-old-hires=["'](https[^"']+)["']/) ?? imgTag.match(/\bsrc=["'](https[^"']+)["']/)
@@ -173,6 +184,7 @@ function amazonFallback(html) {
     brand: brand || null,
     price: price ? parsePrice(price[1]) : null,
     asin: asin?.[1] ?? null,
+    kindle,
     // Only look inside the availability box; "Currently unavailable" appears elsewhere on most pages.
     inStock: !/id=["']outOfStock["']/.test(html) &&
       !/Currently unavailable|out of stock/i.test(
@@ -223,7 +235,8 @@ export function extractProduct(html, url, { preferSize } = {}) {
     result.price = a.price ?? result.price;
     result.image = a.image ?? result.image;
     result.brand = result.brand ?? a.brand;
-    result.inStock = a.inStock;
+    result.inStock = a.kindle ? true : a.inStock; // ebooks are always available
+    if (a.kindle) result.format = 'Kindle eBook';
   }
   if (domainOf(url) === 'target.com') {
     // Target has no price in its structured data; it renders it a few seconds after load.
@@ -238,7 +251,8 @@ export function extractProduct(html, url, { preferSize } = {}) {
   const fromTitle = parseSize(result.title);
   const size = fromPage ?? fromTitle;
   if (size && !size.pack && fromTitle?.pack) size.pack = fromTitle.pack;
-  result.size = size?.label ?? null;
+  // Books: the format stands in for the size, so a Kindle edition never matches a paperback.
+  result.size = result.format ?? size?.label ?? null;
   return result;
 }
 
@@ -325,6 +339,15 @@ export function normalizeTitle(title) {
     .map((w) => SYNONYMS[w] ?? w);
 }
 
+function formatOf(text) {
+  const t = text.toLowerCase();
+  if (/\b(kindle|ebook|e-book)\b/.test(t)) return 'ebook';
+  if (/\baudio ?book|audible\b/.test(t)) return 'audio';
+  if (/\bhardcover|hardback\b/.test(t)) return 'hardcover';
+  if (/\bpaperback|softcover\b/.test(t)) return 'paperback';
+  return null;
+}
+
 function genderOf(text) {
   const t = text.toLowerCase();
   if (/\b(women'?s?|womens|ladies|female)\b/.test(t)) return 'women';
@@ -358,6 +381,11 @@ export function matchScore(a, b) {
   const na = [...ta].filter((w) => /^\d+$/.test(w)).sort().join();
   const nb = [...tb].filter((w) => /^\d+$/.test(w)).sort().join();
   if (na && nb && na !== nb) score *= 0.3;
+
+  // Kindle vs paperback vs hardcover vs audiobook are different products.
+  const fa = formatOf(`${a.title} ${a.size ?? ''}`);
+  const fb = formatOf(`${b.title} ${b.size ?? ''}`);
+  if (fa && fb && fa !== fb) score *= 0.3;
 
   // Women's vs men's (or kids') versions are different products.
   const ga = genderOf(`${a.title} ${a.size ?? ''}`);

@@ -14,3 +14,5 @@ button { font: inherit; font-weight: 600; padding: 8px; border: 0; border-radius
 #error { color: #b91c1c; margin: 0; }
 footer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 14px 12px; border-top: 1px solid #eee; font-size: 12px; }
 footer a { color: #0f766e; }
+#refresh-list { margin: 4px 0 0; padding-left: 16px; font-size: 12px; }
+#refresh-list .bad { color: #b91c1c; }

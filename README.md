@@ -94,6 +94,8 @@ saving an item. Each saved item shows:
   Target, Hoka, Dick's, and others) can be searched.
 - **It's careful about look-alikes:** a different size, pack count, model number (Clifton 10 vs 11),
   or women's vs men's version is never treated as the same product.
+- **Kindle books** are priced from the Kindle price shown on the page, and a Kindle edition is never
+  matched with the paperback or hardcover.
 - **After you save something,** a minimized window opens for a minute or two while the app looks
   for it at your other stores. Prices it finds show up on the dashboard right away.
 
@@ -124,8 +126,8 @@ When Elise says there's a new version (about 2 minutes):
    with exactly the same name, so Chrome can find it.
 4. **Reload the extension:** go to `chrome://extensions` and click the circular **reload arrow** on
    Price Alert Emailer.
-5. **Check it worked:** click the extension icon. You should see **Check my prices now** at the
-   bottom. If Chrome shows an error, or the extension is missing, click **Remove** on it, then
+5. **Check it worked:** click the extension icon. The bottom line should show your email and the
+   new version number (for example, **version 0.4.0**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
    **Load unpacked** and pick the `extension` folder again (Step 2). You'll need to sign in again
    (Step 3).
 

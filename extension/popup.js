@@ -35,12 +35,24 @@ async function showStatus() {
   const live = refreshStatus?.running && Date.now() - refreshStatus.at < 2 * 60 * 1000;
   $('refresh').hidden = live;
   $('last-refresh').textContent = live ? `Checking… ${refreshStatus.text}` : summary(lastRefresh);
+  const details = !live && lastRefresh?.details?.length ? lastRefresh.details : [];
+  $('refresh-details').hidden = !details.length;
+  $('refresh-list').replaceChildren(...details.map((d) => {
+    const li = document.createElement('li');
+    li.textContent = `${d.ok ? '✓' : '✗'} ${d.text}`;
+    if (!d.ok) li.className = 'bad';
+    return li;
+  }));
   return live;
 }
 
 // Prices are refreshed every 6 hours in a minimized window; this runs it now.
 function showRefreshFooter() {
   $('footer').hidden = false;
+  const version = chrome.runtime.getManifest().version;
+  getSession().then((sess) => {
+    $('account').textContent = `${sess?.email ? `Signed in as ${sess.email} · ` : ''}version ${version}`;
+  });
   const poll = async () => { if (await showStatus()) setTimeout(poll, 1500); };
   poll();
   $('refresh').onclick = async (e) => {
