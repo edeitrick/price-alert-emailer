@@ -7,8 +7,8 @@ when the price drops, with a link straight to the deal.
 Google Chrome and a Google account (Gmail).
 
 > **Already set up? A new version is out.** Skip to [Updating to a new version](#updating-to-a-new-version)
-> (about 2 minutes). New in this version: the app finds your items at your other stores, pays
-> attention to sizes, and lets you merge items you saved twice.
+> (about 2 minutes). New in version 0.5.0: emails when a store-wide sale (like "30% off everything")
+> or a bundle deal (like "Buy 2, get 1 free") would get an item below your target.
 
 ---
 
@@ -96,6 +96,13 @@ saving an item. Each saved item shows:
   or women's vs men's version is never treated as the same product.
 - **Kindle books** are priced from the Kindle price shown on the page, and a Kindle edition is never
   matched with the paperback or hardcover.
+- **Sale and bundle emails:** if the price hasn't dropped enough on its own, but a current deal
+  would get you past your target, you get one email listing those items. That covers a store-wide
+  sale with a code or applied at checkout ("30% off everything with code SAVE30"), a bundle ("Buy 2,
+  get 1 free", "2 for $15"), a multi-buy ("Save 10% on 2"), a coupon, or "spend $40, get a $10 gift
+  card". Bundle prices assume you buy the quantity shown. Sales often exclude some brands, so check
+  at checkout. Card-only and Subscribe & Save offers are ignored, because not everyone has them. Any
+  deal found also shows under that store's price on your dashboard.
 - **After you save something,** a minimized window opens for a minute or two while the app looks
   for it at your other stores. Prices it finds show up on the dashboard right away.
 
@@ -127,7 +134,7 @@ When Elise says there's a new version (about 2 minutes):
 4. **Reload the extension:** go to `chrome://extensions` and click the circular **reload arrow** on
    Price Alert Emailer.
 5. **Check it worked:** click the extension icon. The bottom line should show your email and the
-   new version number (for example, **version 0.4.0**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
+   new version number (for example, **version 0.5.0**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
    **Load unpacked** and pick the `extension` folder again (Step 2). You'll need to sign in again
    (Step 3).
 

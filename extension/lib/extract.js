@@ -414,3 +414,113 @@ export function searchQuery(item) {
   const brand = item.brand && !title.toLowerCase().includes(item.brand.toLowerCase()) ? [item.brand] : [];
   return [...brand, ...words].slice(0, 9).join(' ');
 }
+
+// --- Deals: site-wide sales, bundles, coupons ---------------------------------
+// The extension collects two kinds of page text: the product's own buy box
+// (`offers`) and the banners at the top of the page (`banner`). These parsers
+// turn that text into structured deals; dealUnitPrice() turns a deal into the
+// price you'd effectively pay per item. Conservative on purpose: a missed deal
+// costs nothing, a false "30% off everything" email costs trust.
+
+const CARD_ONLY = /\b(card(?:member)?s?|redcard|credit|subscribe|subscription|s&s|first (?:order|purchase)|sign ?up|new customers?|app only|in[- ]app|rewards? members?)\b/i;
+
+function clean(text) {
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function codeIn(text) {
+  return text.match(/\b(?:code|promo code|use code|with code|enter)[:\s]+["“']?([A-Z0-9]{3,20})\b/)?.[1] ?? null;
+}
+
+// Splits text into short phrases so one offer's wording can't borrow another's numbers.
+function phrases(text) {
+  return clean(text).split(/(?<=[.!|•·])\s+|\s{2,}|\n/).flatMap((p) => p.match(/.{1,220}/g) ?? []);
+}
+
+// Banner text → site-wide sale deals.
+export function parseSitewideDeals(bannerText) {
+  const deals = [];
+  for (const p of phrases(bannerText)) {
+    if (CARD_ONLY.test(p) || /\bup to\b/i.test(p)) continue;
+    const m = p.match(/(?:extra\s+)?(\d{1,2})\s*%\s*off\s+(?:almost\s+)?(everything|sitewide|site-wide|storewide|store-wide|(?:your\s+)?(?:entire|whole)\s+(?:order|purchase|site)|all\s+(?:orders|purchases))\b/i);
+    if (!m) continue;
+    const code = codeIn(p);
+    // Applied only with a code or at checkout; otherwise the product price already shows it.
+    if (!code && !/\b(at checkout|in (?:your )?(?:cart|bag)|no code needed)\b/i.test(p)) continue;
+    deals.push({ kind: 'sitewide', pct: Number(m[1]), code, text: p.slice(0, 140) });
+  }
+  return deals;
+}
+
+// Product buy-box text → bundle and coupon deals for this product.
+export function parseProductDeals(offerText) {
+  const deals = [];
+  const add = (deal, p) => deals.push({ ...deal, code: codeIn(p), text: p.slice(0, 140) });
+  const n = (s) => ({ one: 1, two: 2, three: 3, four: 4 }[String(s).toLowerCase()] ?? Number(s));
+  const NUM = '(\\d|one|two|three|four)';
+  for (const p of phrases(offerText)) {
+    if (CARD_ONLY.test(p)) continue;
+    let m;
+    if ((m = p.match(new RegExp(`\\bbuy ${NUM},? get ${NUM} (\\d{1,2})% off\\b`, 'i')))) add({ kind: 'bundle', buy: n(m[1]), get: n(m[2]), getPct: Number(m[3]) }, p);
+    else if ((m = p.match(new RegExp(`\\bbuy ${NUM},? get ${NUM} free\\b`, 'i')))) add({ kind: 'bundle', buy: n(m[1]), get: n(m[2]), getPct: 100 }, p);
+    else if ((m = p.match(/\bbogo (\d{1,2})% off\b/i))) add({ kind: 'bundle', buy: 1, get: 1, getPct: Number(m[1]) }, p);
+    else if (/\bbogo( free)?\b/i.test(p)) add({ kind: 'bundle', buy: 1, get: 1, getPct: 100 }, p);
+    else if ((m = p.match(new RegExp(`\\b(?:save|get) (\\d{1,2})% (?:off )?(?:on|when you buy) ${NUM}\\b`, 'i')))) add({ kind: 'multibuy', qty: n(m[2]), pct: Number(m[1]) }, p);
+    else if ((m = p.match(new RegExp(`\\bbuy ${NUM},? (?:save|get) (\\d{1,2})%`, 'i')))) add({ kind: 'multibuy', qty: n(m[1]), pct: Number(m[2]) }, p);
+    else if ((m = p.match(/\b(\d) for \$(\d+(?:\.\d{2})?)\b/i))) add({ kind: 'multiprice', qty: Number(m[1]), total: Number(m[2]) }, p);
+    else if ((m = p.match(/\bspend \$(\d+)[^$]{0,40}?(?:get|receive) (?:an? )?\$(\d+)(?: \w+)? gift ?card\b/i))) add({ kind: 'spend', spend: Number(m[1]), off: Number(m[2]), giftCard: true }, p);
+    else if ((m = p.match(/\b(?:apply|clip|save) (\d{1,2})% (?:coupon|with coupon)\b/i))) add({ kind: 'coupon', pct: Number(m[1]) }, p);
+    else if ((m = p.match(/\b(?:apply|clip|save) \$(\d+(?:\.\d{2})?) (?:coupon|with coupon|off coupon)\b/i))) add({ kind: 'coupon', off: Number(m[1]) }, p);
+  }
+  return deals;
+}
+
+// What one item effectively costs under a deal at `price`, and how many to buy.
+// Returns null for anything implausible, so a misread never produces an email.
+export function dealUnitPrice(deal, price) {
+  if (!(price > 0) || !deal) return null;
+  const pctOk = (x) => x >= 5 && x <= 80;
+  let qty = 1;
+  let unit = null;
+  switch (deal.kind) {
+    case 'sitewide':
+      if (pctOk(deal.pct)) unit = price * (1 - deal.pct / 100);
+      break;
+    case 'coupon':
+      if (deal.pct != null && pctOk(deal.pct)) unit = price * (1 - deal.pct / 100);
+      else if (deal.off > 0 && deal.off < price * 0.8) unit = price - deal.off;
+      break;
+    case 'bundle':
+      if (deal.buy >= 1 && deal.get >= 1 && deal.buy + deal.get <= 6 && deal.getPct >= 10 && deal.getPct <= 100) {
+        qty = deal.buy + deal.get;
+        unit = price * (deal.buy + deal.get * (1 - deal.getPct / 100)) / qty;
+      }
+      break;
+    case 'multibuy':
+      if (deal.qty >= 2 && deal.qty <= 6 && pctOk(deal.pct)) { qty = deal.qty; unit = price * (1 - deal.pct / 100); }
+      break;
+    case 'multiprice':
+      if (deal.qty >= 2 && deal.qty <= 6 && deal.total > 0) { qty = deal.qty; unit = deal.total / deal.qty; }
+      break;
+    case 'spend':
+      if (deal.spend > 0 && deal.off > 0 && deal.off < deal.spend) {
+        qty = Math.ceil(deal.spend / price);
+        if (qty <= 4) unit = (qty * price - deal.off) / qty;
+      }
+      break;
+  }
+  if (unit == null || !(unit > 0) || unit >= price) return null;
+  return { qty, unit: Math.round(unit * 100) / 100, total: Math.round(unit * qty * 100) / 100 };
+}
+
+// Stable key for one deal, so the same sale isn't emailed twice.
+export function dealKey(deal) {
+  return [deal.kind, deal.pct, deal.buy, deal.get, deal.getPct, deal.qty, deal.total, deal.spend, deal.off, deal.code]
+    .map((x) => x ?? '').join(':');
+}
+
+// Amazon's own offer containers for the product in view (not carousels).
+export const AMAZON_OFFER_SELECTORS = [
+  '#promotionMessageInsideBuyBox_feature_div', '#couponsInBuybox_feature_div', '#coupons_feature_div',
+  '#applicablePromotionList_feature_div', '#promoPriceBlockMessage_feature_div',
+];

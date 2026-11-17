@@ -4,6 +4,12 @@ import { updateThreshold, toggleActive, deleteItem, setListingStatus, addListing
 const money = (n) => (n == null ? '—' : `$${Number(n).toFixed(2)}`);
 const AUTO_MATCH = 0.85;
 
+// Deals the extension saw on the store's page in the last 12 hours.
+const freshDeals = (listing) =>
+  Array.isArray(listing.deals) && listing.deals_seen_at && Date.now() - Date.parse(listing.deals_seen_at) < 12 * 60 * 60 * 1000
+    ? listing.deals
+    : [];
+
 function ListingRow({ listing }) {
   const pending = listing.status === 'active' && listing.match_type !== 'origin';
   return (
@@ -15,6 +21,9 @@ function ListingRow({ listing }) {
       <td>
         {listing.last_price == null ? <span className="muted">Checking soon</span> : money(listing.last_price)}
         {listing.in_stock === false && <span className="muted"> (out of stock)</span>}
+        {freshDeals(listing).map((d, i) => (
+          <div key={i} className="deal">Deal: {d.text}{d.code && <> (code {d.code})</>}</div>
+        ))}
       </td>
       <td className="muted">
         {listing.match_type === 'origin' && 'Saved here'}

@@ -2,11 +2,19 @@
 //   1. Finds matching listings at the user's other stores (new items, then weekly).
 //   2. Fetches current prices for stores that allow server checks.
 //   3. Emails the user when the cheapest listing beats their threshold.
+//   4. Emails one digest when a site-wide sale or bundle deal would beat it.
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY, EMAIL_FROM, WEB_APP_URL
+//      DRY_RUN=1 logs the emails it would send and writes nothing.
 import { createClient } from '@supabase/supabase-js';
-import { extractProduct, extractSearchLinks, matchScore, AUTO_MATCH_THRESHOLD } from '../extension/lib/extract.js';
-import { sendAlertEmail } from './email.mjs';
+import {
+  extractProduct, extractSearchLinks, matchScore, dealUnitPrice, dealKey, AUTO_MATCH_THRESHOLD,
+} from '../extension/lib/extract.js';
+import { sendAlertEmail, sendDealDigestEmail } from './email.mjs';
+
+const DRY_RUN = Boolean(process.env.DRY_RUN);
+const DEAL_FRESH_MS = 12 * 60 * 60 * 1000; // ignore deals not seen on the page in 12 hours
+const DEAL_REPEAT_MS = 14 * 24 * 60 * 60 * 1000; // don't re-send the same deal for 2 weeks
 
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -138,7 +146,7 @@ function isTrusted(listing) {
 
 async function sendAlerts(stores) {
   const items = must(await db.from('items')
-    .select('id, user_id, title, image_url, baseline_price, threshold_pct, currency, listings(*), alerts_sent(price, sent_at)')
+    .select('id, user_id, title, image_url, baseline_price, threshold_pct, currency, listings(*), alerts_sent(price, sent_at, kind, deal_key)')
     .eq('active', true));
   const emails = new Map(must(await db.from('profiles').select('id, email')).map((p) => [p.id, p.email]));
 
@@ -151,11 +159,17 @@ async function sendAlerts(stores) {
     if (best.last_price > target) continue;
 
     // Only re-alert if the price fell below the last price we emailed about.
-    const lastAlert = item.alerts_sent.sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0];
+    const lastAlert = item.alerts_sent
+      .filter((a) => (a.kind ?? 'price') === 'price')
+      .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0];
     if (lastAlert && best.last_price >= lastAlert.price) continue;
 
     const email = emails.get(item.user_id);
     if (!email) continue;
+    if (DRY_RUN) {
+      console.log(`[dry run] price alert to user ${item.user_id.slice(0, 8)}: ${item.title} at $${best.last_price}`);
+      continue;
+    }
     try {
       await sendAlertEmail({
         to: email,
@@ -172,10 +186,71 @@ async function sendAlerts(stores) {
   }
 }
 
+// --- 4. Deal alerts ----------------------------------------------------------
+// A site-wide sale or bundle that would take an item past its target, when the
+// plain price hasn't (that case already got a price alert). One email per user.
+
+async function sendDealAlerts(stores) {
+  const items = must(await db.from('items')
+    .select('id, user_id, title, image_url, baseline_price, threshold_pct, listings(*), alerts_sent(sent_at, kind, deal_key)')
+    .eq('active', true));
+  const emails = new Map(must(await db.from('profiles').select('id, email')).map((p) => [p.id, p.email]));
+  const byUser = new Map();
+
+  for (const item of items) {
+    const target = item.baseline_price * (1 - item.threshold_pct / 100);
+    const listings = item.listings.filter((l) => isTrusted(l) && l.in_stock !== false && l.last_price > 0);
+    if (!listings.length || Math.min(...listings.map((l) => l.last_price)) <= target) continue;
+
+    let best = null;
+    for (const listing of listings) {
+      if (!listing.deals_seen_at || Date.now() - Date.parse(listing.deals_seen_at) > DEAL_FRESH_MS) continue;
+      for (const deal of Array.isArray(listing.deals) ? listing.deals : []) {
+        const result = dealUnitPrice(deal, listing.last_price);
+        if (!result || result.unit > target) continue;
+        if (!best || result.unit < best.result.unit) best = { listing, deal, result };
+      }
+    }
+    if (!best) continue;
+
+    const key = `${best.listing.id}:${dealKey(best.deal)}`;
+    const sentRecently = item.alerts_sent.some((a) => a.deal_key === key && Date.now() - Date.parse(a.sent_at) < DEAL_REPEAT_MS);
+    if (sentRecently) continue;
+
+    const entries = byUser.get(item.user_id) ?? [];
+    entries.push({ item, ...best, key, target, storeName: stores.get(best.listing.store_id)?.name ?? 'the store' });
+    byUser.set(item.user_id, entries);
+  }
+
+  for (const [userId, entries] of byUser) {
+    const email = emails.get(userId);
+    if (!email) continue;
+    if (DRY_RUN) {
+      console.log(`[dry run] deal digest to user ${userId.slice(0, 8)}:`);
+      for (const e of entries) console.log(`   ${e.item.title.slice(0, 50)} | ${e.storeName} | ${e.deal.text} | ${e.result.qty} for $${e.result.total} ($${e.result.unit} each) vs target $${e.target.toFixed(2)}`);
+      continue;
+    }
+    try {
+      await sendDealDigestEmail({ to: email, entries });
+      must(await db.from('alerts_sent').insert(entries.map((e) => ({
+        item_id: e.item.id,
+        listing_id: e.listing.id,
+        price: e.result.unit,
+        kind: e.deal.kind === 'sitewide' ? 'sitewide' : 'bundle',
+        deal_key: e.key,
+      }))));
+      stats.emailed++;
+    } catch (err) {
+      console.error(`deal email failed for user ${userId.slice(0, 8)}: ${err.message}`);
+    }
+  }
+}
+
 // --- main --------------------------------------------------------------------
 
 const stores = new Map(must(await db.from('stores').select('*')).map((s) => [s.id, s]));
 await findMatches(stores);
 await refreshPrices(stores);
 await sendAlerts(stores);
+await sendDealAlerts(stores);
 console.log('done', stats);

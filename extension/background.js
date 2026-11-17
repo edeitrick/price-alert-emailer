@@ -6,6 +6,7 @@ import { api, rpc, setSession, clearSession, getSession } from './lib/supabase.j
 import {
   extractProduct, extractSearchLinks, extractSizeOptions, matchScore, searchQuery, canonicalUrl,
   parseSize, sameSize, MIN_MATCH_SCORE,
+  parseProductDeals, parseSitewideDeals, dealUnitPrice, AMAZON_OFFER_SELECTORS,
 } from './lib/extract.js';
 
 const ALARM = 'refresh-prices';
@@ -120,6 +121,58 @@ async function readCandidate(tabId, url, itemSize) {
   return product.price ? { url, product } : null;
 }
 
+// Runs in the store's page: the product's own buy-box text (Amazon's offer
+// containers, or the area around the main price elsewhere, never carousels)
+// and the banners along the top of the page.
+function collectOfferText(amazonSelectors, price) {
+  const text = (el) => (el?.innerText || '').replace(/\s+/g, ' ').trim();
+  const inCarousel = (el) => el.closest('[aria-roledescription="carousel"], [class*="carousel" i], [data-test*="carousel" i], [class*="recommend" i], [id*="recommend" i]');
+  let offers = '';
+  if (/(^|\.)amazon\./.test(location.hostname)) {
+    offers = amazonSelectors.map((sel) => text(document.querySelector(sel))).filter(Boolean).join(' | ');
+  } else {
+    const shown = `$${Number(price).toFixed(2)}`;
+    const priceEl = document.querySelector('[data-test="product-price"]')
+      ?? [...document.querySelectorAll('span, div, p')].find((e) => e.children.length === 0 && e.textContent.trim() === shown && !inCarousel(e));
+    // Climb to the buy box (Ulta's ProductHero is ~2,800 characters), stopping
+    // before the whole page; then drop any carousels inside it.
+    let box = priceEl;
+    while (box?.parentElement && text(box.parentElement).length < 4000) box = box.parentElement;
+    if (box && !inCarousel(box)) {
+      offers = text(box);
+      for (const el of box.querySelectorAll('[aria-roledescription="carousel"], [class*="carousel" i], [data-test*="carousel" i], [class*="recommend" i], [id*="recommend" i]')) {
+        const inner = text(el);
+        if (inner) offers = offers.replace(inner, ' ');
+      }
+      // "Frequently bought together" and similar blocks list other products.
+      offers = offers.split(/frequently bought together|bought together|complete the (?:look|routine|set)|you may also like|pairs well with|customers also/i)[0];
+    }
+  }
+  const banner = [...document.querySelectorAll('header, [role="banner"], [class*="banner" i], [id*="banner" i], [class*="promo" i], [class*="announcement" i]')]
+    .filter((e) => { const r = e.getBoundingClientRect(); return r.top < 350 && r.height > 0 && r.height < 250 && !inCarousel(e); })
+    .map(text).filter(Boolean);
+  return { offers: offers.slice(0, 3000), banner: [...new Set(banner)].join(' | ').slice(0, 3000) };
+}
+
+// Reads deals on the page now open in the tab and saves them on the listing
+// (an empty list clears old ones). Never throws: deals must not break price checks.
+async function saveDeals(tabId, listingId, price) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId }, func: collectOfferText, args: [AMAZON_OFFER_SELECTORS, price],
+    });
+    const deals = [...parseProductDeals(result.offers), ...parseSitewideDeals(result.banner)]
+      .filter((d) => dealUnitPrice(d, price));
+    await api(`/rest/v1/listings?id=eq.${listingId}`, {
+      method: 'PATCH', body: { deals, deals_seen_at: new Date().toISOString() },
+    });
+    return deals;
+  } catch (err) {
+    console.warn('Deal check failed', err);
+    return [];
+  }
+}
+
 const readSearchResults = (tabId, url) =>
   loadAndRead(tabId, url, (html) => {
     const links = extractSearchLinks(html, url, CANDIDATES_PER_STORE);
@@ -217,7 +270,9 @@ async function refreshPrices(tabId, details) {
       if (product?.price) {
         await rpc('record_price', { p_listing_id: listing.id, p_price: product.price, p_in_stock: product.inStock });
         stats.checked++;
-        details.push({ ok: true, text: `${site}: $${product.price.toFixed(2)}` });
+        const deals = await saveDeals(tabId, listing.id, product.price);
+        const dealNote = deals.length ? ` · deal: ${deals[0].text.slice(0, 50)}` : '';
+        details.push({ ok: true, text: `${site}: $${product.price.toFixed(2)}${dealNote}` });
       } else {
         stats.failed++;
         details.push({ ok: false, text: `${site}: no price found`, url: listing.url });
