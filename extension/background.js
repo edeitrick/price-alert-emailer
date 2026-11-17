@@ -125,11 +125,14 @@ async function readCandidate(tabId, url, itemSize) {
 // containers, or the area around the main price elsewhere, never carousels)
 // and the banners along the top of the page.
 function collectOfferText(amazonSelectors, price) {
-  const text = (el) => (el?.innerText || '').replace(/\s+/g, ' ').trim();
+  // Keeps one line per visible line of text, so each offer is parsed on its own.
+  const text = (el) => (el?.innerText || '').split('\n').map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
   const inCarousel = (el) => el.closest('[aria-roledescription="carousel"], [class*="carousel" i], [data-test*="carousel" i], [class*="recommend" i], [id*="recommend" i]');
   let offers = '';
   if (/(^|\.)amazon\./.test(location.hostname)) {
-    offers = amazonSelectors.map((sel) => text(document.querySelector(sel))).filter(Boolean).join(' | ');
+    // Amazon has no site-wide sales of the kind we look for, so only its offer containers are read.
+    const amazonOffers = amazonSelectors.map((sel) => text(document.querySelector(sel))).filter(Boolean).join('\n');
+    return { offers: amazonOffers.slice(0, 3000), banner: '' };
   } else {
     const shown = `$${Number(price).toFixed(2)}`;
     const priceEl = document.querySelector('[data-test="product-price"]')
@@ -142,7 +145,7 @@ function collectOfferText(amazonSelectors, price) {
       offers = text(box);
       for (const el of box.querySelectorAll('[aria-roledescription="carousel"], [class*="carousel" i], [data-test*="carousel" i], [class*="recommend" i], [id*="recommend" i]')) {
         const inner = text(el);
-        if (inner) offers = offers.replace(inner, ' ');
+        if (inner) offers = offers.replace(inner, '\n');
       }
       // "Frequently bought together" and similar blocks list other products.
       offers = offers.split(/frequently bought together|bought together|complete the (?:look|routine|set)|you may also like|pairs well with|customers also/i)[0];
@@ -151,7 +154,7 @@ function collectOfferText(amazonSelectors, price) {
   const banner = [...document.querySelectorAll('header, [role="banner"], [class*="banner" i], [id*="banner" i], [class*="promo" i], [class*="announcement" i]')]
     .filter((e) => { const r = e.getBoundingClientRect(); return r.top < 350 && r.height > 0 && r.height < 250 && !inCarousel(e); })
     .map(text).filter(Boolean);
-  return { offers: offers.slice(0, 3000), banner: [...new Set(banner)].join(' | ').slice(0, 3000) };
+  return { offers: offers.slice(0, 3000), banner: [...new Set(banner)].join('\n').slice(0, 3000) };
 }
 
 // Reads deals on the page now open in the tab and saves them on the listing

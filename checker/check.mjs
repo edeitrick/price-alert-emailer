@@ -202,23 +202,22 @@ async function sendDealAlerts(stores) {
     const listings = item.listings.filter((l) => isTrusted(l) && l.in_stock !== false && l.last_price > 0);
     if (!listings.length || Math.min(...listings.map((l) => l.last_price)) <= target) continue;
 
-    let best = null;
+    // Every fresh deal that beats the target, cheapest first; send the best one
+    // not already emailed in the last two weeks.
+    const candidates = [];
     for (const listing of listings) {
       if (!listing.deals_seen_at || Date.now() - Date.parse(listing.deals_seen_at) > DEAL_FRESH_MS) continue;
       for (const deal of Array.isArray(listing.deals) ? listing.deals : []) {
         const result = dealUnitPrice(deal, listing.last_price);
-        if (!result || result.unit > target) continue;
-        if (!best || result.unit < best.result.unit) best = { listing, deal, result };
+        if (result && result.unit <= target) candidates.push({ listing, deal, result, key: `${listing.id}:${dealKey(deal)}` });
       }
     }
+    const sentRecently = (key) => item.alerts_sent.some((a) => a.deal_key === key && Date.now() - Date.parse(a.sent_at) < DEAL_REPEAT_MS);
+    const best = candidates.sort((a, b) => a.result.unit - b.result.unit).find((c) => !sentRecently(c.key));
     if (!best) continue;
 
-    const key = `${best.listing.id}:${dealKey(best.deal)}`;
-    const sentRecently = item.alerts_sent.some((a) => a.deal_key === key && Date.now() - Date.parse(a.sent_at) < DEAL_REPEAT_MS);
-    if (sentRecently) continue;
-
     const entries = byUser.get(item.user_id) ?? [];
-    entries.push({ item, ...best, key, target, storeName: stores.get(best.listing.store_id)?.name ?? 'the store' });
+    entries.push({ item, ...best, target, storeName: stores.get(best.listing.store_id)?.name ?? 'the store' });
     byUser.set(item.user_id, entries);
   }
 

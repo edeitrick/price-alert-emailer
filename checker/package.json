@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
-  "scripts": { "check": "node --env-file=../.env.local check.mjs" },
+  "scripts": { "check": "node --env-file=../.env.local check.mjs", "test": "node --test deals.test.mjs" },
   "dependencies": { "@supabase/supabase-js": "^2.45.0" }
 }

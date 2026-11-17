@@ -422,7 +422,9 @@ export function searchQuery(item) {
 // price you'd effectively pay per item. Conservative on purpose: a missed deal
 // costs nothing, a false "30% off everything" email costs trust.
 
-const CARD_ONLY = /\b(card(?:member)?s?|redcard|credit|subscribe|subscription|s&s|first (?:order|purchase)|sign ?up|new customers?|app only|in[- ]app|rewards? members?)\b/i;
+// Offers not everyone can get: store cards, subscriptions, sign-up and app-only deals.
+// (Not "gift card": "spend $40, get a $10 gift card" is a real deal.)
+const CARD_ONLY = /\b(circle card|red ?card|credit card|card ?members?|cardholders?|with (?:your|the) [\w ]{0,20}card|subscribe|subscription|s&s|first (?:order|purchase)|sign ?up|new customers?|app only|in[- ]app|members? only)\b/i;
 
 function clean(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -432,9 +434,13 @@ function codeIn(text) {
   return text.match(/\b(?:code|promo code|use code|with code|enter)[:\s]+["“']?([A-Z0-9]{3,20})\b/)?.[1] ?? null;
 }
 
-// Splits text into short phrases so one offer's wording can't borrow another's numbers.
+// One phrase per line of page text (and per "|"/"•" separated part), so each
+// offer is judged on its own wording. Long lines are paragraphs, not offers.
 function phrases(text) {
-  return clean(text).split(/(?<=[.!|•·])\s+|\s{2,}|\n/).flatMap((p) => p.match(/.{1,220}/g) ?? []);
+  return String(text ?? '')
+    .split(/\n|\s[|•·]\s/)
+    .map(clean)
+    .filter((p) => p && p.length <= 160);
 }
 
 // Banner text → site-wide sale deals.
@@ -446,7 +452,7 @@ export function parseSitewideDeals(bannerText) {
     if (!m) continue;
     const code = codeIn(p);
     // Applied only with a code or at checkout; otherwise the product price already shows it.
-    if (!code && !/\b(at checkout|in (?:your )?(?:cart|bag)|no code needed)\b/i.test(p)) continue;
+    if (!code && !/\b(?:applied |discount )?(?:at checkout|in (?:your )?cart)\b|\bno code needed\b/i.test(p)) continue;
     deals.push({ kind: 'sitewide', pct: Number(m[1]), code, text: p.slice(0, 140) });
   }
   return deals;
@@ -463,7 +469,7 @@ export function parseProductDeals(offerText) {
     let m;
     if ((m = p.match(new RegExp(`\\bbuy ${NUM},? get ${NUM} (\\d{1,2})% off\\b`, 'i')))) add({ kind: 'bundle', buy: n(m[1]), get: n(m[2]), getPct: Number(m[3]) }, p);
     else if ((m = p.match(new RegExp(`\\bbuy ${NUM},? get ${NUM} free\\b`, 'i')))) add({ kind: 'bundle', buy: n(m[1]), get: n(m[2]), getPct: 100 }, p);
-    else if ((m = p.match(/\bbogo (\d{1,2})% off\b/i))) add({ kind: 'bundle', buy: 1, get: 1, getPct: Number(m[1]) }, p);
+    else if ((m = p.match(/\bbogo (\d{1,2})%/i))) add({ kind: 'bundle', buy: 1, get: 1, getPct: Number(m[1]) }, p);
     else if (/\bbogo( free)?\b/i.test(p)) add({ kind: 'bundle', buy: 1, get: 1, getPct: 100 }, p);
     else if ((m = p.match(new RegExp(`\\b(?:save|get) (\\d{1,2})% (?:off )?(?:on|when you buy) ${NUM}\\b`, 'i')))) add({ kind: 'multibuy', qty: n(m[2]), pct: Number(m[1]) }, p);
     else if ((m = p.match(new RegExp(`\\bbuy ${NUM},? (?:save|get) (\\d{1,2})%`, 'i')))) add({ kind: 'multibuy', qty: n(m[1]), pct: Number(m[2]) }, p);
