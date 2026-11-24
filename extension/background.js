@@ -3,6 +3,7 @@
 // Both load pages in a hidden (minimized) Chrome window, the same way a person
 // would see them: stores block or don't render prices for the cloud checker.
 import { api, rpc, setSession, clearSession, getSession } from './lib/supabase.js';
+import { canRead } from './lib/access.js';
 import {
   extractProduct, extractSearchLinks, extractSizeOptions, matchScore, searchQuery, canonicalUrl,
   parseSize, sameSize, MIN_MATCH_SCORE,
@@ -232,7 +233,11 @@ async function searchOtherStores(tabId, item, userStores, stats) {
   const listedStores = new Set(item.listings.map((l) => l.store_id));
   const rejected = new Set(item.listings.filter((l) => l.status === 'rejected').map((l) => l.url));
   // Only stores this user has saved from or added a link for, in the item's category.
-  const targets = userStores.filter((s) => !listedStores.has(s.id) && s.categories.includes(item.category));
+  const targets = [];
+  for (const s of userStores) {
+    // Only stores the user has allowed the extension to read can be searched.
+    if (!listedStores.has(s.id) && s.categories.includes(item.category) && await canRead(s.search_url.replace('{q}', 'x'))) targets.push(s);
+  }
   const itemSize = parseSize(item.size) ?? parseSize(item.title);
 
   for (const store of targets) {
@@ -288,6 +293,11 @@ async function refreshPrices(tabId, details) {
   const due = listings.filter((l) => !l.last_checked_at || Date.now() - Date.parse(l.last_checked_at) >= RECHECK_AFTER_MS);
   for (const [i, listing] of due.entries()) {
     await setStatus(`Checking prices (${i + 1} of ${due.length}): ${new URL(listing.url).hostname.replace(/^www\./, '')}`);
+    if (!(await canRead(listing.url))) {
+      stats.failed++;
+      details.push({ ok: false, text: `${new URL(listing.url).hostname.replace(/^www\./, '')}: not allowed yet. Click "Allow price checks" above` });
+      continue;
+    }
     try {
       const size = parseSize(listing.size) ?? parseSize(listing.items.size) ?? parseSize(listing.items.title);
       const product = await readProduct(tabId, listing.url, size);

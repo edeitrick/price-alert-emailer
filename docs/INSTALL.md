@@ -7,8 +7,10 @@ when the price drops, with a link straight to the deal.
 Google Chrome and a Google account (Gmail).
 
 > **Already set up? A new version is out.** Skip to [Updating to a new version](#updating-to-a-new-version)
-> (about 2 minutes). New in version 0.5.3: emails when a store-wide sale (like "30% off everything")
-> or a bundle deal (like "Buy 2, get 1 free") would get an item below your target.
+> (about 2 minutes). New in version 0.5.4: emails when a store-wide sale (like "30% off everything")
+> or a bundle deal (like "Buy 2, get 1 free") would get an item below your target, and prices from
+> any store, not just Amazon, Sephora, Ulta and Target. After updating, open the extension: if it
+> shows an **Allow price checks on…** button, click it and choose **Allow**.
 
 ---
 
@@ -50,6 +52,8 @@ Google Chrome and a Google account (Gmail).
 4. Check the **Category** (Beauty, General, Electronics, or Home). It controls which of your other
    stores get checked for the same item.
 5. Click **Save alert**. You'll see **"✓ Saved."**
+   - The first time you save from a store other than Amazon, Sephora, Ulta or Target, Chrome asks
+     whether Price Alert Emailer may read that site. Click **Allow**, or its prices can't be checked.
 
 ## Step 5: See and manage your alerts
 
@@ -116,6 +120,7 @@ saving an item. Each saved item shows:
 | The popup asks you to sign in again | Click **Sign in with Google**; you won't need to re-enter your password if you're still signed in to Google. |
 | **"Couldn't read the price on this page"** | Type the price in yourself and save as normal. |
 | The extension disappeared | The `price-alert-emailer-main` folder was probably moved or deleted. Repeat Steps 1 and 2. |
+| Details says **"not allowed yet"** for a store | Open the extension, click **Allow price checks on…**, and choose **Allow**. |
 | An error on `chrome://extensions` after updating | The new folder isn't in the same place or has a different name. See step 5 of [Updating](#updating-to-a-new-version). |
 | No emails at all | Check spam, and check the dashboard: is the item paused, or has the price not yet dropped by your %? |
 
@@ -134,7 +139,7 @@ When Elise says there's a new version (about 2 minutes):
 4. **Reload the extension:** go to `chrome://extensions` and click the circular **reload arrow** on
    Price Alert Emailer.
 5. **Check it worked:** click the extension icon. The bottom line should show your email and the
-   new version number (for example, **version 0.5.3**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
+   new version number (for example, **version 0.5.4**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
    **Load unpacked** and pick the `extension` folder again (Step 2). You'll need to sign in again
    (Step 3).
 

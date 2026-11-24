@@ -1,4 +1,5 @@
-import { getSession, rpc } from './lib/supabase.js';
+import { getSession, rpc, api } from './lib/supabase.js';
+import { canRead, requestAccess } from './lib/access.js';
 import { extractProduct, domainOf, canonicalUrl, parseSize, discoverSearchUrl } from './lib/extract.js';
 import { WEB_APP_URL, DEFAULT_THRESHOLD_PCT, CATEGORIES, DEFAULT_CATEGORY_BY_DOMAIN } from './config.js';
 
@@ -46,8 +47,29 @@ async function showStatus() {
   return live;
 }
 
+// Stores the user has links for but hasn't let the extension read yet get a
+// one-click "Allow" (Chrome only shows its permission prompt from a click).
+async function showAccessButton() {
+  const listings = await api('/rest/v1/listings?select=url&status=neq.rejected').catch(() => []);
+  const missing = new Map();
+  for (const { url } of listings) {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    if (!missing.has(host) && !(await canRead(url))) missing.set(host, url);
+  }
+  const button = $('allow-access');
+  button.hidden = !missing.size;
+  if (!missing.size) return;
+  button.textContent = `Allow price checks on ${[...missing.keys()].join(', ')}`;
+  button.onclick = async () => {
+    const granted = await requestAccess([...missing.values()]);
+    button.textContent = granted ? '✓ Allowed. They\'ll be checked next time.' : 'Not allowed. Those stores won\'t be checked.';
+    button.disabled = true;
+  };
+}
+
 // Prices are refreshed every 6 hours in a minimized window; this runs it now.
 function showRefreshFooter() {
+  showAccessButton().catch(console.error);
   $('footer').hidden = false;
   const version = chrome.runtime.getManifest().version;
   getSession().then((sess) => {
@@ -103,7 +125,13 @@ async function init() {
   $('save').onsubmit = async (e) => {
     e.preventDefault();
     $('error').hidden = true;
+    // Ask first, straight from the click: lets the extension check this store's
+    // price later. Already-allowed stores (Amazon, Target, ...) don't prompt.
+    const access = requestAccess([tab.url]).catch(() => false);
     try {
+      if (!(await access)) {
+        showError("Saved, but prices from this store can't be checked until you allow access. Use the Allow button below.");
+      }
       const itemId = await rpc('save_item', {
         p_url: canonicalUrl(tab.url),
         p_domain: domain,

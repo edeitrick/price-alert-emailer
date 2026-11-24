@@ -16,3 +16,5 @@ footer { display: flex; flex-direction: column; align-items: flex-start; gap: 4p
 footer a { color: #0f766e; }
 #refresh-list { margin: 4px 0 0; padding-left: 16px; font-size: 12px; }
 #refresh-list .bad { color: #b91c1c; }
+#allow-access { font-size: 12px; padding: 6px 8px; margin-bottom: 4px; }
+#allow-access:disabled { background: #e5e5e5; color: #333; cursor: default; }
