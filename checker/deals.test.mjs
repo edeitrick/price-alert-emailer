@@ -2,7 +2,18 @@
 // Run: node --test checker/deals.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSitewideDeals, parseProductDeals, dealUnitPrice } from '../extension/lib/extract.js';
+import { parseSitewideDeals, parseProductDeals, dealUnitPrice, extractProduct } from '../extension/lib/extract.js';
+
+test('Ulta size page: priced product next to an unpriced size group', () => {
+  const ld = (o) => `<script type="application/ld+json">${JSON.stringify(o)}</script>`;
+  const html = ld({ '@type': 'Product', name: 'Toleriane Hydrating Gentle Face Cleanser', brand: { name: 'La Roche-Posay' }, Size: '13.52 oz (Refill)',
+    offers: { '@type': 'Offer', availability: 'InStock', price: 19.99, priceCurrency: 'USD' } })
+    + ld({ '@type': 'ProductGroup', name: 'Toleriane Hydrating Gentle Face Cleanser', brand: { name: 'La Roche-Posay' },
+      hasVariant: [{ '@type': 'Product', sku: '2606177', size: '1.6 oz' }, { '@type': 'Product', sku: '2625722', size: '13.52 oz (Refill)' }] });
+  const p = extractProduct(html, 'https://www.ulta.com/p/x-xlsImpprod15321285?sku=2625722');
+  assert.equal(p.price, 19.99);
+  assert.equal(p.brand, 'La Roche-Posay');
+});
 
 // Shaped like the Ulta header the extension captured (one line per element).
 const ulta = (extra) => [

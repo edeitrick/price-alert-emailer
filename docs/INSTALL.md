@@ -7,7 +7,7 @@ when the price drops, with a link straight to the deal.
 Google Chrome and a Google account (Gmail).
 
 > **Already set up? A new version is out.** Skip to [Updating to a new version](#updating-to-a-new-version)
-> (about 2 minutes). New in version 0.5.1: emails when a store-wide sale (like "30% off everything")
+> (about 2 minutes). New in version 0.5.2: emails when a store-wide sale (like "30% off everything")
 > or a bundle deal (like "Buy 2, get 1 free") would get an item below your target.
 
 ---
@@ -134,7 +134,7 @@ When Elise says there's a new version (about 2 minutes):
 4. **Reload the extension:** go to `chrome://extensions` and click the circular **reload arrow** on
    Price Alert Emailer.
 5. **Check it worked:** click the extension icon. The bottom line should show your email and the
-   new version number (for example, **version 0.5.1**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
+   new version number (for example, **version 0.5.2**). If Chrome shows an error, or the extension is missing, click **Remove** on it, then
    **Load unpacked** and pick the `extension` folder again (Step 2). You'll need to sign in again
    (Step 3).
 

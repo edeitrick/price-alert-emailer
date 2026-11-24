@@ -214,7 +214,11 @@ function productFromGroup(group, url, preferSize) {
 export function extractProduct(html, url, { preferSize } = {}) {
   const nodes = jsonLdNodes(html);
   const group = nodes.find((n) => isType(n, 'ProductGroup'));
-  const product = group ? productFromGroup(group, url, preferSize) : nodes.find((n) => isType(n, 'Product')) ?? {};
+  const single = nodes.find((n) => isType(n, 'Product') && n.offers && !group?.hasVariant?.includes(n));
+  let product = group ? productFromGroup(group, url, preferSize) : single ?? {};
+  // Ulta's size pages list the sizes in a group without prices, next to a priced
+  // entry for the size shown; use that one when the group has no price.
+  if (group && !offerFrom(product.offers).price && single) product = { ...single, brand: single.brand ?? product.brand };
   const offer = offerFrom(product.offers);
   const brand = typeof product.brand === 'string' ? product.brand : product.brand?.name;
   const image = Array.isArray(product.image) ? product.image[0] : product.image?.url ?? product.image;

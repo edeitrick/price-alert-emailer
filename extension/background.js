@@ -76,17 +76,26 @@ function waitForLoad(tabId) {
 async function loadAndRead(tabId, url, read) {
   await chrome.tabs.update(tabId, { url });
   await waitForLoad(tabId);
-  const deadline = Date.now() + PAGE_TIMEOUT_MS;
+  let deadline = Date.now() + PAGE_TIMEOUT_MS;
+  let extended = false;
+  let looksLikeProduct = false;
   while (Date.now() < deadline) {
     try {
       const [{ result: html }] = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => document.documentElement.outerHTML,
       });
+      looksLikeProduct = /application\/ld\+json|og:title/i.test(html);
       const tab = await chrome.tabs.get(tabId);
       const value = read(html, tab.url || url);
       if (value) return value;
-    } catch { /* page still navigating; try again */ }
+    } catch { looksLikeProduct = false; /* page still navigating; try again */ }
+    // Hoka and Dick's first show a bot check that reloads into the real page,
+    // which can be slow in a minimized window: give such a page more time, once.
+    if (!extended && !looksLikeProduct && deadline - Date.now() < 2000) {
+      deadline += 25_000;
+      extended = true;
+    }
     await sleep(1500);
   }
   return null;
