@@ -71,9 +71,16 @@ function waitForLoad(tabId) {
   });
 }
 
+// What the last page looked like, for the popup's report when no price is found.
+let lastPage = null;
+const describeLastPage = () => (lastPage
+  ? ` (saw ${lastPage.host}: "${lastPage.title || 'no title'}", ${lastPage.kb} KB, ${lastPage.productData ? 'has' : 'no'} product data)`
+  : ' (page never loaded)');
+
 // Loads a page and polls its rendered HTML until `read(html, url)` returns
 // something (prices and search results often appear after load), or times out.
 async function loadAndRead(tabId, url, read) {
+  lastPage = null;
   await chrome.tabs.update(tabId, { url });
   await waitForLoad(tabId);
   let deadline = Date.now() + PAGE_TIMEOUT_MS;
@@ -87,6 +94,12 @@ async function loadAndRead(tabId, url, read) {
       });
       looksLikeProduct = /application\/ld\+json|og:title/i.test(html);
       const tab = await chrome.tabs.get(tabId);
+      lastPage = {
+        title: (html.match(/<title[^>]*>([^<]{0,60})/i)?.[1] ?? '').trim(),
+        kb: Math.round(html.length / 1024),
+        productData: looksLikeProduct,
+        host: new URL(tab.url || url).hostname.replace(/^www\./, ''),
+      };
       const value = read(html, tab.url || url);
       if (value) return value;
     } catch { looksLikeProduct = false; /* page still navigating; try again */ }
@@ -287,7 +300,7 @@ async function refreshPrices(tabId, details) {
         details.push({ ok: true, text: `${site}: $${product.price.toFixed(2)}${dealNote}` });
       } else {
         stats.failed++;
-        details.push({ ok: false, text: `${site}: no price found`, url: listing.url });
+        details.push({ ok: false, text: `${site}: no price found${describeLastPage()}`, url: listing.url });
       }
     } catch (err) {
       stats.failed++;
