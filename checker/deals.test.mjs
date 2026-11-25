@@ -15,6 +15,23 @@ test('Ulta size page: priced product next to an unpriced size group', () => {
   assert.equal(p.brand, 'La Roche-Posay');
 });
 
+const TARGET_URL = 'https://www.target.com/p/la-roche-posay-cleanser-13-5-fl-oz/-/A-51195474';
+const cdui = '<div data-test="module-product-detail-price-v2"><div><div data-test="price-cdui"><div data-test="price-cdui-row"><div data-test="text-quill">'
+  + '<span data-test="text-quill-insert-0">$19.99</span><span data-test="text-quill-insert-1"> ($1.48/fluid ounce)</span></div></div></div></div></div>';
+
+test('Target: new price block, no product-price element', () => {
+  assert.equal(extractProduct(`<html>${cdui}</html>`, TARGET_URL).price, 19.99);
+});
+
+test('Target: empty product-price element is skipped, unit price ignored', () => {
+  const html = `<span data-test="product-price"></span><span> ($1.48/fluid ounce)</span>${cdui}`;
+  assert.equal(extractProduct(html, TARGET_URL).price, 19.99);
+});
+
+test('Target: old product-price element still read', () => {
+  assert.equal(extractProduct('<span data-test="product-price">$17.99</span>', TARGET_URL).price, 17.99);
+});
+
 // Shaped like the Ulta header the extension captured (one line per element).
 const ulta = (extra) => [
   'SKIP TO MAIN', 'SKIP TO FOOTER', 'Beauty in 2 hours or less—order online, pick up in store.',

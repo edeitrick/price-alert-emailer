@@ -192,6 +192,18 @@ function amazonFallback(html) {
   };
 }
 
+function targetPrice(html) {
+  for (const name of ['product-price', 'module-product-detail-price-v2', 'price-cdui']) {
+    const start = html.search(new RegExp(`data-test=["']${name}["']`));
+    if (start < 0) continue;
+    const text = html.slice(start, start + 1500).replace(/^[^>]*>/, '').replace(/<[^>]+>/g, ' ');
+    // Not a unit price: "($1.48/fluid ounce)".
+    const amount = text.match(/^[^$(]{0,200}\$\s?([\d,]+(?:\.\d{2})?)(?!\d|\s*\/)/);
+    if (amount) return parsePrice(amount[1]);
+  }
+  return null;
+}
+
 // Sephora and others publish a ProductGroup (the product) with one Product per
 // shade/size. Use the variant in the URL (?skuId=), else one matching the size
 // we're looking for, else the cheapest one.
@@ -244,9 +256,11 @@ export function extractProduct(html, url, { preferSize } = {}) {
   }
   if (domainOf(url) === 'target.com') {
     // Target has no price in its structured data; it renders it a few seconds after load.
-    const price = html.match(/data-test=["']product-price["'][^>]*>\s*\$?([\d,]+(?:\.\d{2})?)/);
+    // Older pages: <span data-test="product-price">$19.99</span>. Newer ones put it in
+    // a price-cdui block (<span data-test="text-quill-insert-0">$19.99</span>), and the
+    // old element can be missing or empty. Take the first dollar amount in either.
     const brand = html.match(/"primary_brand"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"/);
-    result.price = result.price ?? (price ? parsePrice(price[1]) : null);
+    result.price = result.price ?? targetPrice(html);
     result.brand = result.brand ?? (brand ? decodeEntities(brand[1]) : null);
     if (/data-test=["'][^"']*(?:outOfStock|soldOut)[^"']*["']/i.test(html)) result.inStock = false;
   }
